@@ -1,0 +1,1177 @@
+#!/bin/bash
+#   Copyright 2017 bin jin
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+# Framework:
+#
+#     If the function names conform to the specifications:
+#         External call function.
+#         Error handling.
+#         Display help information.
+#         Print the functions list.
+#
+#     e.g.
+#         ### [brief_introduction] #[description_1] #[description_1]
+#         [script_name]_[function_name](){
+#             ...
+#             [function_body]
+#             '''
+#             # exit and display [error_description]
+#             exit 1; # [error_description]
+#             '''
+#             # return false status
+#             return 1
+#         }
+
+
+### Convert a DMG file to ISO #Usage: cd2i [dmg_file_path]
+lib_cd2i() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -f "$1" ] || exit 1; # dmg file not found
+    [ "${1##*.}" == "dmg" ] || exit 1; # file not dmg
+    hdiutil convert $1 -format UDTO -o "${0%.*}.iso";
+    return 0
+}
+
+
+
+### Convert an ISO file to DMG format #Usage: ci2d [iso_file_path]
+lib_ci2d() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -f "$1" ] || exit 1; # iso file not found
+    [ "${1##*.}" == "iso" ] || exit 1; # file not iso
+    hdiutil convert $1 -format UDRW -o "${0%.*}.dmg";
+    return 0
+}
+
+### Create ISO by directory #Usage: udf [dir_path]
+lib_udf() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -d "$1" ] || exit 1; # directory not found
+    # hdiutil makehybrid -iso -joliet -o win8.iso win8.cdr
+    hdiutil makehybrid -udf -udf-version 1.02 -o "$1.iso" "$1";
+    return 0
+}
+
+### Get apk file from AppStore #Usage: gpkg [[countdown_sec]] #    1. Login AppStore and Install App #    2. Run this command before download complate #    3. Keep shell open
+lib_gpkg() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ `ps -ef | grep -c "${0##*/} gpkg"` -gt 3 ] && exit 1; # gpkg command is already running
+
+    local i anchor pkg=() tmp=/private/var/tmp countdown=$((${1-1} * 60)) sec_on=`date +%s`;
+    printf "[gpkg]: Will listen \033[4m$countdown\033[0m sec.\n";
+
+    # Reg hard link from /private/var/tmp
+    pkg_serial_number $tmp;
+
+    # Infinite loop
+    while :; do
+
+        # Exit if all download complate
+        [ $countdown -lt 0 -a ${#pkg[@]} == 0 ] && {
+            printf "[gpkg]: Exit.\n";
+            break
+        };
+        [ $countdown == 0 ] && printf "[gpkg]: Listening \033[4mstop\033[0m.\n";
+
+        # Search download pkg
+        [ $((countdown -= 2)) -ge 0 ] && pkg_serial_number /private/var/folders;
+
+        # foreach pkg array
+        [ ${#pkg[@]} -gt 0 ] && for i in ${!pkg[@]};
+        do
+            # Alleady complate
+            [ "${pkg[i]%/*}" == "$tmp" ] && {
+                pkg_complate "${pkg[$i]}" &
+                unset pkg[$i];
+                continue
+            };
+
+            anchor=$tmp/${i}_${pkg[$i]##*/}; # Anchor file path
+
+            # Add hard link
+            [ -f "$anchor" ] || {
+                ln "${pkg[$i]}" "$anchor" && printf "[gpkg]: Add \033[4m${pkg[i]##*/}\033[0m.\n"
+            };
+
+            # Download complate
+            [ -f "${pkg[$i]}" ] || {
+                unset pkg[$i];
+                pkg_complate "$anchor" &
+            };
+        done;
+
+        # Timing
+        i=$((`date +%s` - $sec_on));
+        [ $((countdown % 10)) == 0 ] && printf "[gpkg]: Count: ${#pkg[@]}, UseTime: `lib_dhms $i`\n";
+
+        sleep 2;
+    done;
+
+    # wait all thread over
+    wait
+}
+
+# Override pkg map: pkg[$serial_number]="$path"
+pkg_serial_number() {
+    local k v;
+    while read k v; do
+        # Put in map
+        [ "$v" ] && pkg[$k]="$v";
+    done <<-SH
+    `find "$1" -type f -iregex ".*[0-9]\.pkg" -exec ls -i {} \; 2>&-`
+SH
+
+    return 0
+}
+
+# hash and move to ~/Downloads
+pkg_complate() {
+    [ -f "$1" ] || return 1;
+    local NL="${IFS}        " hcode tmp=$((`date +%s` - $sec_on));
+    hcode="[gpkg]: ${1##*/}${NL}SIZE: `du -h "$1" | awk '{print $1}'`${NL}TIME: `lib_dhms $tmp`";
+    tmp=`openssl dgst -md5 "$1"` && hcode+="${NL}MD5:${tmp##*=}"; # Hash md5
+    tmp=`openssl dgst -sha1 "$1"` && hcode+="${NL}SHA1:${tmp##*=}"; # Hash sha1
+    tmp=`openssl dgst -sha256 "$1"` && hcode+="${NL}SHA256:${tmp##*=}"; # Hash sha256
+    printf "$hcode\n";
+    mv "$1" ~/Downloads 2>&- || {
+        cp "$1" ~/Downloads && printf "[gpkg]: \033[31m$1 still exist\033[0m\n"
+    }
+}
+
+### Format Unix timestamp to ??d ??h ??m ??s #dhms [secends]
+lib_dhms() {
+    [ $# == 1 ] || exit 1; # Args error
+    lib_inum $1 || exit 1; # Not number
+    local out=$(($1 % 60))s;
+    [ $1 -ge 60 ] && {
+        out=$(($1 % 3600 / 60))m\ $out;
+        [ $1 -ge 3600 ] && {
+            out=$(($1 % 86400 / 3600))h\ $out;
+            [ $1 -ge 86400 ] && out=$(($1 / 86400))d\ $out
+        }
+    };
+    printf "$out\n"
+}
+
+### Create instatll media, by Install*.app #Usage: cim [device_path]
+lib_cim(){
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -d "$1" ] || exit 1; # target device not found
+    local src;
+    while read src; do
+        break;
+    done <<-SH
+    `find /Applications/Install* -iname "createinstallmedia" 2>&-`
+SH
+
+    [ -f "$src" ] || exit 1; # install source not found
+    sudo "$src" --volume "$1" --applicationpath "${src:0:${#src}-38}" --nointeraction;
+    return 0
+}
+
+### Write img to disk #Usage: sdd [img_path] [disk_path] #       e.g. sdd /Volumes/Macintosh\\ HD/docker.iso /dev/disk2 #       e.g. iof /Volumes/Macintosh\\ HD/docker.iso /Volumes/1
+lib_sdd (){
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    # caller 0;
+    [ -f "$1" ] || exit 1; # img file not found
+    local target i j k l;
+    [ "${2:0:9}" == "/dev/disk" ] && {
+        target=$2
+    } || {
+        # cut mount info
+        while read i j k l; do
+            [ "$k" == "$2" ] && target=$i
+        done <<-SH
+            `mount`
+SH
+    }
+    # trim
+    [[ $target == *disk[0-9]s[0-9] ]] && target=${target%s*};
+    diskutil unmountDisk $target || exit 1; # Can not unmount this disk
+    sudo dd if="$1" of=$target bs=1m || return 1;
+    sync;
+    diskutil eject $target
+    return 0
+}
+
+### Set directory owner #Usage: own [dir_path]
+lib_own(){
+    [ -d "$1" ] || exit 1; # directory not found
+    local USER arg;
+    USER=${2:-bin}
+    [ ${1:(-1)} == / ] && arg="${1:0:${#1}-1}" || arg="$1";
+    sudo chown -R $USER:`id -gn $USER` "$arg" || return 1;
+    sudo chmod -R 644 "$arg/*"
+    sudo find "$arg" -type d -exec chmod 755 {} \;
+    return 0
+}
+
+### Copy rsa public key to remote #Usage: addrsa [host_login_info] [[public_key_other_name]]
+lib_addrsa () {
+    [ "$1" ] || exit 1; # first args is empty
+    local pub REPLY=$PWD;
+    [ -f "$HOME/.ssh/id_rsa$2.pub" ] || exit 1; # public key not found
+    cd "$HOME/.ssh";
+    pub="`cat id_rsa$2.pub`";
+    cd "$REPLY";
+    ssh $1 "echo $pub >> ~/.ssh/authorized_keys";
+    return 0
+}
+
+### Rebuild boot file #Usage: rboot [dir_path]
+lib_rboot() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -f "$1/com.apple.recovery.boot/kernelcache" ] || exit 1; # Boot file not found
+    sudo bless --folder "$1/com.apple.recovery.boot" --label "Recovery HD";
+    # 426F6F74-0000-11AA-AA11-00306543ECAC
+    # [ "${1##*/}" == "dmtest" -a "${2##*/}" == "BaseSystem.dmg" -a -d "$3" ] && "$1" ensureRecoveryPartition "$3" "$2" 0 0 "${2%.*}.chunklist"
+    return 0
+}
+
+### Hidden file | directory #Usage: hid [yes|no]
+lib_hid() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ "$1" == "yes" -o "$1" == "no" ] || exit 1; # must select 'yes' or 'no'
+    defaults write com.apple.finder AppleShowAllFiles $1;
+    return 0
+}
+
+### No hidden directory #Usage: nohid [dir_path]
+lib_nohid() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    [ -d "$1" ] || exit 1; # target not found or not directory
+    chflags nohidden "$1"/*;
+    return 0
+}
+
+### Allow all app install
+lib_aapp() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    sudo spctl --master-disable;
+    return 0
+}
+
+### Print text not in ASCII char #Usage: unascii [dir_path]
+lib_unascii() {
+    [ -d "$1" ] || exit 1; # target not found or not directory
+    grep -r '[^[:alnum:][:punct:][:space:]]' "$1";
+    return 0
+}
+
+### Show IPv4
+lib_lip() {
+    # netstat -rn | grep "default"
+    local route_ip=`route -n get default | grep gateway | awk '{print $2}'`;
+    # ifconfig | grep -oE "inet ([0-9]+\.)+[0-9]+" | awk '$2 != "127.0.0.1" {print $2}';
+    ifconfig | grep -oE "inet ${route_ip%.*}\.[0-9]+" | awk '{print $2}';
+    return 0
+}
+
+### Convert lowercase
+lib_low() {
+    [ "$1" ] && tr "[:upper:]" "[:lower:]" <<< "$@";
+    return 0
+}
+
+### Convert uppercase
+lib_upp() {
+    [ "$1" ] && tr "[:lower:]" "[:upper:]" <<< "$@";
+    return 0
+}
+
+### Search IPv4 by MAC or Host name #Usage: sip [mac_addr] #    support alias, see lib hosts
+lib_sip() {
+    [ "$1" ] || exit 1; # MAC addr or Host name is empty
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+
+    # Clear arp cache
+    sudo arp -ad >&- 2>&- || return 1;
+
+    local i j l=0 mac macs=() route_ip=`route -n get default | grep gateway | awk '{print $2}'`;
+
+    load_ini hosts;
+
+    # Args
+    for i in "$@"; do
+
+        # get from map
+        mac=`_map -g $i`;
+        mac=${mac:-$i};
+
+        # replace separator
+        [[ $mac == *-*-*-*-*-* ]] && mac=${mac//-/:};
+
+        [[ $mac == *:*:*:*:*:* ]] && {
+            # cache max variable length
+            [ ${#i} -gt $l ] && l=${#i};
+            # convert lowercase
+            mac=`lib_low $mac`;
+            # trim ^0
+            for j in {0..9} {a..f};
+            do
+                mac=${mac/0$j/$j};
+            done;
+            # args arr
+            macs[${#macs[@]}]=$mac.$i;
+        }
+    done
+
+    [ ${#macs[@]} == 0 ] && return 0;
+
+    l=$((l / 5 * 5 + 5));
+
+    # fork: Resource temporarily unavailable
+
+    # init thread pool
+    thread_pool -i 40;
+
+    # seq 1 254
+    for i in {1..254};
+    do
+        i=${route_ip%.*}.$i;
+
+        # get thread
+        thread_pool -g;
+
+        # multi-thread
+        {
+            ping -c 1 -t 1 $i >&- 2>&-;
+            j=`arp $i 2>&-`;
+            for mac in ${macs[@]};
+            do
+                [[ $j == *${mac%%.*}* ]] && printf "%-${l}s$i\n" ${mac#*.}
+                # Like nbtstat
+                # [[ `smbutil status $i 2>&-` == *$mac* ]] && printf $i
+            done
+
+            # return thread
+            thread_pool -r;
+        } &
+    done;
+
+    # destroy thread pool
+    thread_pool -d;
+    # clear arp cache
+    sudo arp -ad >&- 2>&-
+}
+
+# thread pool
+thread_pool() {
+    case $1 in
+        # use before loop, need count
+        --init | -i)
+            mkfifo /tmp/$$.fifo;
+            # &4
+            exec 4<> /tmp/$$.fifo;
+            rm /tmp/$$.fifo;
+            local i;
+            # init thread pool
+            for i in `seq $2 1`; do
+                printf "\n";
+            done >&4
+        ;;
+        # use after loop
+        --destroy | -d)
+            wait;
+            exec 4>&-
+        ;;
+        # use after multi-thread
+        --return | -r)
+            printf "\n" >&4
+        ;;
+        # use before multi-thread
+        --get | -g)
+            read -u 4
+        ;;
+    esac
+}
+
+hosts() {
+    printf %s "
+##
+# Host Database
+#
+# localhost is used to configure the loopback interface
+# when the system is booting.  Do not change this entry.
+##
+127.0.0.1	localhost
+255.255.255.255	broadcasthost
+::1             localhost
+"
+}
+
+### Update hosts by ini #    will read ini config from HOME or script path. #    ini file context like: # #[hosts] #abc.org=01-12-23-34-45-56 #lib-233=67-78-89-9a-ab-bc #www.a.com=192.168.1.1
+lib_hosts() {
+    # load ini in map1
+    load_ini hosts 1 || exit 1; # Not found ini configure
+
+    # get map1 key array in REPLY
+    _map -ks 1;
+    local i j k host_cache host_new n="
+"
+    while read i j k;
+    do
+        # override mac addr in map1
+        _map -p "$i" "$j" 1
+    done <<-SH
+    `lib_sip ${REPLY[@]}`
+SH
+
+    # clear map0, sip command use it before
+    _map -c;
+
+    # get map1 key value in REPLY
+    _map -a 1 || exit 1; # Unknown error
+
+    for ((i=0; i<${#REPLY[@]}; i+=2))
+    do
+        lib_iipv4 ${REPLY[i + 1]} && _map -p "${REPLY[$i]}" "${REPLY[i + 1]}";
+    done
+
+    # cache hosts context
+    host_cache="`cat /etc/hosts`";
+
+    while read i;
+    do
+        k=($i);
+        j=`_map -g "${k[1]}"` && {
+            _map -r "${k[1]}";
+            [ "$j" == "$k" ] || {
+                host_new+="${i/$k/$j}$n";
+                continue
+            };
+        }
+        host_new+="$i$n";
+    done <<< "$host_cache"
+
+    # empty array
+    _map -a || unset REPLY;
+
+    for ((i=0; i<${#REPLY[@]}; i+=2))
+    do
+        host_new+="${REPLY[i + 1]}	${REPLY[i]}$n"
+    done
+
+    printf %s "$host_new" | sudo tee /etc/hosts >/dev/null
+
+}
+
+### Get xml without annotations #Usage: trxml [text_file_path]
+lib_trxml() {
+    [ -f "$1" ] || exit 1; # File not found
+    awk '/<!--/{i++}/-->/{i--}!i&&!/-->/&&!/^$/' "$1"
+}
+
+### Replace all space to one space #Usage: trspace [text_file_path]
+lib_trspace() {
+    [ "`uname`" == "Linux" ] || exit 1; # Only support Linux
+    [ -f "$1" ] || exit 1; # File not found
+    sed -r ':1;N;$!b1;s/\s+/ /g' "$1"
+}
+
+### Test string is ipv4 #Usage: iipv4 [str]
+lib_iipv4() {
+    [ "$1" ] || return 1;
+    # command test
+    [ "${1:0:1}" == "-" ] && return 1;
+    [[ $1 != *[^.0-9]* && $1 == [1-9]*[0-9] && $1 != *..* && $1 != *.0* ]] || return 1;
+    local a IFS=$IFS".";
+    a=($1);
+    [ ${#a[@]} == 4 ] || return 1;
+    for a in ${a[@]};
+    do
+        [ $a -gt 255 ] && return 1;
+    done
+    return 0
+}
+
+# Test mac addr
+imac() {
+    [ "$1" ] || return 1;
+    # command test
+    [ "${1:0:1}" == "-" ] && return 1;
+    [[ $1 != *[^-:0-9a-fA-F]* && $1 != *--* && $1 != *::* && $1 == [0-9a-fA-F]*[0-9a-fA-F] && $1 != *[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]* ]] || return 1
+    local a IFS=$IFS":-";
+    a=($1);
+    [ ${#a[@]} == 6 ] || return 1;
+    return 0
+}
+
+### Connect vnc server #Usage: vnc [ipv4][:[port]] #server listening port 5900
+lib_vnc() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    lib_iipv4 $1 || exit 1; # Args not a ipv4
+    open vnc://$1;
+    return 0
+}
+
+### Get array index #Usage: graai [arr_var_name] [arr_value]
+lib_garri() {
+    [ "`uname`" == "Linux" ] || exit 1; # Only support Linux
+    [ "$1" ] || exit 1; # Args is empty
+    set | grep -E "^$1=\(" | grep -oP "(?<=\[)\d+(?=\]=\"\Q`sed 's/"/\\\&/g' <<< "$2"`\E\")" && return 0;
+    return 1
+}
+
+### Get password for stdin chpasswd -e #Usage: gmd5pw [passwd_str]
+lib_gmd5pw() {
+    [ "$1" ] || exit 1; # Args is empty
+    openssl passwd -1 "$1"
+}
+
+### Auto scp with password #Usage: scpp [pass_word] [command...]
+lib_scpp() {
+    local password;
+    password=$1;
+    shift;
+    expect <<-TCL
+	set timeout 150
+	spawn scp $*
+	expect {
+		timeout { exit 2 }
+		"*yes/no" { send "yes\r"; exp_continue }
+		"*assword:" { send "$password\r" }
+	}
+	expect {
+		timeout { exit 2 }
+		"*denied*" { exit 3 }
+		"No such" { exit 4 }
+		"100%" { exit 0 }
+	}
+	expect eof
+	TCL
+
+    case $? in
+        1)
+            exit 1; # Expect Error
+        ;;
+        2)
+            exit 1; # Time Out
+        ;;
+        3)
+            exit 1; # Password Error
+        ;;
+        4)
+            exit 1; # File not found
+        ;;
+        *)
+            exit 1; # Unknown Error
+        ;;
+    esac
+}
+
+### save tail n line #Usage: tailto [text_file] [line_num]
+lib_tailto() {
+    [ -f "$1" ] || exit 1; # File not found
+    lib_inum $2 || exit 1; # Not number
+    [ "$2" -gt 0 ] 2>&- || exit 1; # Num too small
+    mv "$1" "$1.swp";
+    tail -$2 "$1.swp" > "$1";
+    rm -f "$1.swp";
+    return 0
+}
+
+### Test str is num #Usage: inum [str]
+lib_inum() {
+    [ "$1" ] || return 2;
+    [[ $1 != *[^0-9]* && $1 != 0[0-9]* ]] || return 1;
+    return 0
+}
+
+#################
+#    private    #
+#################
+
+# decode encode
+code() {
+    local i=0 c t;
+    case $1 in
+        --encode|-e)
+            for ((; i<${#2}; i++))
+            do
+                t=$(printf %d \'${2:$i:1});
+                [ $t -gt 0 ] && {
+                    c+=$t;
+                    :
+                } || c+=${2:$i:1}
+            done;
+            printf "$c"
+        ;;
+        --decode|-d)
+            while [ $i -lt ${#2} ]; do
+                if [[ ${2:$i:1} == [^0-9] ]]; then
+                    c+=${2:$i:1};
+                    ((i++))
+                elif [ ${2:$i:2} -gt 31 ]; then
+                    c+=$(printf \\x`printf %x ${2:$i:2}`);
+                    ((i+=2))
+                else
+                    c+=$(printf \\x`printf %x ${2:$i:3}`);
+                    ((i+=3))
+                fi
+            done;
+            printf "$c"
+        ;;
+    esac
+}
+
+BKDRHash (){
+    local a i h=0 seed=131; # 31 131 1313 13131 131313
+    for ((i=0; i<${#1}; i++))
+    do
+        a+=" '${1:$i:1}";
+    done;
+    a=(`printf "%d " $a`);
+    for i in ${a[@]};
+    do
+        h=$((seed * h + $i));
+    done;
+    # 2^63-1 = 0x7FFFFFFFFFFFFFFF
+    printf $((($h & 0x7FFFFFFFFFFFFFFF) % 0x7FFFFFFFFFFFFF + (${2:-0} & 0xFF) * 0x7FFFFFFFFFFFFF))
+    # printf $(($h & 0xF))
+}
+
+# # variable map, variable: MAP_KEY_[INT] MAP_VALUE_[INT], not support ``
+# varmap() {
+#     [ $# -gt 1 ] || return 1;
+#     local h=`BKDRHash "$2"` i k;
+
+#     case $1 in
+#         --put|-p)
+#             [ $# == 3 ] || return 2;
+#             # Get key count
+#             eval i=\${#MAP_KEY_$h[@]};
+#             [ $i == 0 ] && {
+#                 eval MAP_KEY_$h[0]=\"$2\";
+#                 eval MAP_VALUE_$h[0]=\"$3\";
+#                 :
+#             } || {
+#                 # Get all key index
+#                 eval i=\${!MAP_KEY_$h[@]};
+#                 for i in $i;
+#                 do
+#                     eval k=\${MAP_KEY_$h[$i]};
+#                     [ "$k" == "$2" ] && {
+#                         # If key aleady in, update value
+#                         eval MAP_VALUE_$h[$i]=\"$3\";
+#                         return 0
+#                     }
+#                 done
+#                 # Apend key value
+#                 eval MAP_KEY_$h[$i + 1]=\"$2\";
+#                 eval MAP_VALUE_$h[$i + 1]=\"$3\";
+#             }
+#         ;;
+#         --get|-g)
+#             [ $# == 2 ] || return 1;
+#             eval i=\${#MAP_KEY_$h[@]};
+#             if [ $i == 0 ]; then
+#                 return 0
+#             elif [ $i == 1 ]; then
+#                 eval echo \${MAP_VALUE_$h}
+#             else
+#                 eval i=\${!MAP_KEY_$h[@]};
+#                 for i in $i;
+#                 do
+#                     eval k=\${MAP_KEY_$h[$i]};
+#                     [ "$k" == "$2" ] && {
+#                         # If key aleady in, update value
+#                         eval echo \${MAP_VALUE_$h[$i]};
+#                         return 0
+#                     }
+#                 done
+#             fi
+#         ;;
+#     esac
+# }
+
+# Offset map, variable: MAP_OFFSET MAP_ENTRY
+offset_map() {
+    [ "$1" ] || return 1;
+    local i h k o=0;
+    case $1 in
+        --put | -p)
+            [ $# -ge 3 -a ${#2} != 0 -a ${#3} != 0 ] || return 2;
+            h=`BKDRHash "$2" $4` || return 2;
+            [ ! "${MAP_OFFSET[$h]}" ] && {
+                MAP_OFFSET[$h]="${#2} ${#3}";
+                MAP_ENTRY[$h]="$2$3";
+                ((++MAP_ENTRY[0x7FFFFFFFFFFFFFFF - (${4:-0} & 0xFF)]));
+                return 0
+            } || {
+                k=(${MAP_OFFSET[$h]});
+                for ((i=0; i<${#k[@]}; i+=2))
+                do
+                    # If key aleady in, update value
+                    [ "${MAP_ENTRY[$h]:$o:${k[$i]}}" == "$2" ] && {
+                        ((o += ${k[$i]}));
+                        # [left]$3[right]
+                        MAP_ENTRY[$h]="${MAP_ENTRY[$h]:0:$o}$3${MAP_ENTRY[$h]:$o + ${k[$i + 1]}}";
+                        # after value update
+                        k[$i + 1]=${#3};
+                        MAP_OFFSET[$h]="${k[@]}";
+                        return 0
+                    };
+                    ((o += ${k[$i]} + ${k[$i + 1]}))
+                done
+                # Apend key value
+                MAP_OFFSET[$h]+=" ${#2} ${#3}";
+                MAP_ENTRY[$h]+="$2$3";
+                ((++MAP_ENTRY[0x7FFFFFFFFFFFFFFF - (${4:-0} & 0xFF)]));
+                return 0
+            }
+        ;;
+        --get | -g | --remove | -r)
+            [ $# -ge 2 -a ${#2} != 0 ] || return 1;
+            h=`BKDRHash "$2" $3` || return 2;
+            [ "${MAP_OFFSET[$h]}" ] || return 1;
+            k=(${MAP_OFFSET[$h]});
+            if [ ${#k[@]} == 2 ]; then
+                [ "${MAP_ENTRY[$h]:0:$k}" == "$2" ] && {
+                    REPLY="${MAP_ENTRY[$h]:$k}";
+                    # --get | -g || --remove | -r
+                    [ "${1/-g/}" != "$1" ] && printf "$REPLY" || {
+                        unset MAP_OFFSET[$h] MAP_ENTRY[$h];
+                        ((--MAP_ENTRY[0x7FFFFFFFFFFFFFFF - (${3:-0} & 0xFF)]))
+                    };
+                    return 0;
+                }
+            elif [ ${#k[@]} -gt 2 ]; then
+                for ((i=0; i<${#k[@]}; i+=2))
+                do
+                    # If key aleady in, update
+                    [ "${MAP_ENTRY[$h]:$o:${k[$i]}}" == "$2" ] && {
+                        REPLY="${MAP_ENTRY[$h]:$o + ${k[$i]}:${k[$i + 1]}}";
+                        # --get | -g || --remove | -r
+                        [ "${1/-g/}" != "$1" ] && printf "$REPLY" || {
+                            MAP_ENTRY[$h]="${MAP_ENTRY[$h]:0:$o}${MAP_ENTRY[$h]:$o + ${k[$i]} + ${k[$i + 1]}}";
+                            unset k[$i] k[$i+1];
+                            MAP_OFFSET[$h]="${k[@]}";
+                            ((--MAP_ENTRY[0x7FFFFFFFFFFFFFFF - (${3:-0} & 0xFF)]))
+                        };
+                        return 0
+                    };
+                    ((o += ${k[$i]} + ${k[$i + 1]}))
+                done;
+            fi;
+            return 1
+        ;;
+        --keys | -ks | --values | -vs | --arr | -a | --clear | -c)
+            [ ${#MAP_OFFSET[@]} == 0 ] && return 1;
+            i=$((${2:-0} & 0xFF));
+            local l r;
+            ((l = i * 0x7FFFFFFFFFFFFF, r = l + 0x7FFFFFFFFFFFFF));
+            [ "${MAP_OFFSET[$l]}" ] || MAP_OFFSET[$l]=""
+            [ "${MAP_OFFSET[$r]}" ] || MAP_OFFSET[$r]=""
+            h=${!MAP_OFFSET[@]};
+            h="${h% $r*} ";
+            h=${h#*$l };
+            h=${h% };
+            [ "${MAP_OFFSET[$l]}" ] && h="$l $h" || unset MAP_OFFSET[$l];
+            [ "${MAP_OFFSET[$r]}" ] || unset MAP_OFFSET[$r];
+
+            [ "$h" ] || return 1;
+
+            case $1 in
+                --clear | -c)
+                    [ "$h" ] && unset MAP_ENTRY[0x7FFFFFFFFFFFFFFF-i] MAP_OFFSET[${h// /] MAP_OFFSET[}] MAP_ENTRY[${h// /\] MAP_ENTRY[}];
+                    # }
+                ;;
+                --keys | -ks)
+                    unset REPLY r;
+                    for h in $h;
+                    do
+                        k=(${MAP_OFFSET[$h]}) o=0;
+                        for l in ${k[@]};
+                        do
+                            [ $((r++ % 2)) == 0 ] && REPLY[${#REPLY[@]}]="${MAP_ENTRY[$h]:$o:$l}";
+                            ((o += $l));
+                        done
+                    done
+                ;;
+                --values | -vs)
+                    unset REPLY r;
+                    for h in $h;
+                    do
+                        k=(${MAP_OFFSET[$h]}) o=0;
+                        for l in ${k[@]};
+                        do
+                            [ $((r++ % 2)) == 1 ] && REPLY[${#REPLY[@]}]="${MAP_ENTRY[$h]:$o:$l}";
+                            ((o += $l));
+                        done
+                    done
+                ;;
+                --arr | -a)
+                    unset REPLY;
+                    for h in $h;
+                    do
+                        k=(${MAP_OFFSET[$h]}) o=0;
+                        for i in ${k[@]};
+                        do
+                            REPLY[${#REPLY[@]}]="${MAP_ENTRY[$h]:$o:$i}";
+                            ((o += $i));
+                        done
+                    done
+                ;;
+            esac
+            return 0
+        ;;
+        --size | -s)
+            printf "${MAP_ENTRY[0x7FFFFFFFFFFFFFFF - (${2:-0} & 0xFF)]:-0}"
+        ;;
+        --clearall)
+            unset MAP_ENTRY MAP_OFFSET
+        ;;
+    esac
+}
+
+# Split map, variable: MAP
+split_map() {
+    [ "$1" ] || return 1;
+    local h i kv s=`printf "\b"` o=0 OLDIFS=$IFS;
+    case $1 in
+        --put | -p)
+            [ $# -ge 3 -a ${#2} != 0 -a ${#3} != 0 ] || return 2;
+            h=`BKDRHash "$2" $4` || return 2;
+            [ ! "${MAP[$h]}" ] && {
+                MAP[$h]="$2$s$3";
+                ((++MAP[0x7FFFFFFFFFFFFFFF - (${4:-0} & 0xFF)]));
+                return 0
+            } || {
+                IFS=$s;
+                kv=(${MAP[$h]});
+                IFS=$OLDIFS;
+                for ((i=0; i<${#kv[@]}; i+=2))
+                do
+                    [ "${kv[$i]}" == "$2" ] && {
+                        ((o += ${#kv[$i]} + 1));
+                        MAP[$h]=${MAP[$h]:0:$o}$3${MAP[$h]:$o + ${#kv[$i + 1]}};
+                        return 0
+                    };
+                    ((o += ${#kv[$i]} + ${#kv[$i + 1]} + 2))
+                done;
+                MAP[$h]+="$s$2$s$3";
+                ((++MAP[0x7FFFFFFFFFFFFFFF - (${4:-0} & 0xFF)]));
+                return 0
+            };
+        ;;
+        --get | -g | --remove | -r)
+            [ $# -ge 2 -a ${#2} != 0 ] || return 1;
+            h=`BKDRHash "$2" $3` || return 2;
+            [ "${MAP[$h]}" ] || return 1;
+            IFS=$s;
+            kv=(${MAP[$h]});
+            IFS=$OLDIFS;
+            if [ ${#kv[@]} == 2 ]; then
+                [ "$kv" == "$2" ] && {
+                    REPLY="${kv[1]}";
+                    # --get | -g || --remove | -r
+                    [ "${1/-g/}" != "$1" ] && printf "$REPLY" || {
+                        unset MAP[$h];
+                        ((--MAP[0x7FFFFFFFFFFFFFFF - (${3:-0} & 0xFF)]))
+                    };
+                    return 0;
+                }
+            elif [ ${#kv[@]} -gt 2 ]; then
+                for ((i=0; i<${#kv[@]}; i+=2))
+                do
+                    [ "${kv[$i]}" == "$2" ] && {
+                        REPLY="${kv[$i + 1]}";
+                        # --get | -g || --remove | -r
+                        [ "${1/-g/}" != "$1" ] && printf "$REPLY" || {
+                            [ $((${#kv[@]} - $i)) == 2 ] && {
+                                # remove tail
+                                MAP[$h]=${MAP[$h]:0:$o - 1};
+                            } || MAP[$h]=${MAP[$h]:0:$o}${MAP[$h]:$o + ${#kv[$i]} + ${#kv[$i + 1]} + 2};
+                            ((--MAP[0x7FFFFFFFFFFFFFFF - (${3:-0} & 0xFF)]))
+                        };
+                        return 0
+                    };
+                    ((o += ${#kv[$i]} + ${#kv[$i + 1]} + 2))
+                done;
+            fi;
+            return 1
+        ;;
+        --keys | -ks | --values | -vs | --arr | -a | --clear | -c)
+            [ ${#MAP[@]} == 0 ] && return 1;
+            i=$((${2:-0} & 0xFF));
+            local l r;
+            ((l = i * 0x7FFFFFFFFFFFFF, r = l + 0x7FFFFFFFFFFFFF));
+            [ "${MAP[$l]}" ] || MAP[$l]=""
+            [ "${MAP[$r]}" ] || MAP[$r]=""
+            h=${!MAP[@]};
+            h="${h% $r*} ";
+            h=${h#*$l };
+            h=${h% };
+            [ "${MAP[$l]}" ] && h="$l $h" || unset MAP[$l];
+            [ "${MAP[$r]}" ] || unset MAP[$r];
+
+            [ "$h" ] || return 1;
+
+            case $1 in
+                --clear | -c)
+                    unset MAP[0x7FFFFFFFFFFFFFFF-i] MAP[${h// /] MAP[}];
+                    # }
+                ;;
+                --keys | -ks)
+                    unset REPLY r;
+                    for h in $h;
+                    do
+                        IFS=$s;
+                        kv=(${MAP[$h]});
+                        IFS=$OLDIFS;
+                        for l in ${!kv[@]};
+                        do
+                            [ $((r++ % 2)) == 0 ] && REPLY[${#REPLY[@]}]="${kv[$l]}";
+                        done
+                    done
+                ;;
+                --values | -vs)
+                    unset REPLY r;
+                    for h in $h;
+                    do
+                        IFS=$s;
+                        kv=(${MAP[$h]});
+                        IFS=$OLDIFS;
+                        for l in ${!kv[@]};
+                        do
+                            [ $((r++ % 2)) == 1 ] && REPLY[${#REPLY[@]}]="${kv[$l]}";
+                        done
+                    done
+                ;;
+                --arr | -a)
+                    unset REPLY;
+                    for h in $h;
+                    do
+                        IFS=$s;
+                        kv=(${MAP[$h]});
+                        IFS=$OLDIFS;
+                        for l in ${!kv[@]};
+                        do
+                            REPLY[${#REPLY[@]}]="${kv[$l]}"
+                        done
+                    done
+                ;;
+            esac
+            return 0
+        ;;
+        --size | -s)
+            printf "${MAP[0x7FFFFFFFFFFFFFFF - (${2:-0} & 0xFF)]:-0}"
+        ;;
+        --clearall)
+            unset MAP
+        ;;
+    esac
+}
+
+# $*, "$*", $@ can not keep $#, only "$@" can save native structural
+_map () {
+    # # varmap "$@"
+    offset_map "$@"
+    # split_map "$@"
+}
+
+_set() {
+    [ "$1" ] || return 1;
+    local i;
+    case $1 in
+        --add | -i)
+            [ $# -ge 2 ] || return 2;
+            i=$(((${3:-0} & 0xF) + 0xF));
+            _map -g "$2" $i >/dev/null && return 1 || _map -p "$2" _ $i
+        ;;
+        --contains | -t)
+            [ $# -ge 2 ] || return 2;
+            _map -g "$2" $(((${3:-0} & 0xF) + 0xF)) >/dev/null && return 0 || return 1
+        ;;
+        --remove | -r)
+            [ $# -ge 2 ] || return 2;
+            _map -r "$2" $(((${3:-0} & 0xF) + 0xF)) >/dev/null || return 1
+        ;;
+        --arr | -a)
+            _map -ks $(((${2:-0} & 0xF) + 0xF))
+        ;;
+        --clear | -c)
+            _map -c $(((${2:-0} & 0xF) + 0xF))
+        ;;
+    esac
+}
+
+file_sub_time() {
+    [ -f "$1" ] || return 1;
+    printf $(( (`date +%s` - `stat -f "%a" "$1"`) / 60 / 60 ))
+}
+
+# load .*.ini config
+load_ini() {
+    [ "$1" ] || return 1;
+    local l tag IFS=$IFS"=";
+    while read l; do
+        [ "$l" == "" ] && continue;
+        if [ "${l/=/}" == "$l" ]; then
+            [ "$l" == "[$1]" ] && tag=1 || unset tag;
+            :
+        elif [ $tag ]; then
+            _map -p ${l%=*} ${l#*=} $2
+        fi
+    done <<-SH
+        `cat ${0%/*}/*.ini ${0%/*}/.*.ini ~/*.ini ~/.*.ini 2>&- | awk -F';' '{print $1}'`
+SH
+
+    while read l tag;
+    do
+        lib_iipv4 $tag || {
+            imac $tag || continue
+        };
+        _map -p "$l" "$tag" $2;
+    done <<-SH
+        `set`
+SH
+
+   [ `_map -s $2` == 0 ] && return 1;
+   return 0
+}
+
+# hdiutil attach *.dmg
+# hdiutil detach *.dmg
+# sudo bless --folder=/Volumes/BOOT --file=/Volumes/BOOT/EFI/BOOT/BOOTX64.efi --setBoot --legacy
+# sudo asr restore -source /Volumes/OS\ X\ Install\ ESD/BaseSystem.dmg -target /Volumes/Untitled -erase -format HFS+
+
+# diskutil rename "$1" "RHD"
+# touch .metadata_never_index
+# mkdir com.apple.recovery.boot
+#    BaseSystem.chunklist
+#    boot.efi
+#    BaseSystem.dmg
+#    com.apple.Boot.plist
+#    .disk_label
+#    PlatformSupport.plist
+#    kernelcache
+#    .disk_label_2x
+#    SystemVersion.plist
+
+
+# Erasing Disk: 0%... 10%... 20%... 30%...100%...
+# Copying installer files to disk...
+# Copy complete.
+# Making disk bootable...
+# Copying boot files...
+# Copy complete.
+# Done.
+
+    # .Trashes
+    # .fseventsd
+    # .IABootFiles
+    # Install OS X Yosemite.app
+    # .IABootFilesSystemVersion.plist
+    # Library
+    # .IAPhysicalMedia
+    # System
+    # .Spotlight-V100
+    # usr
+
+# ./System/Library/CoreServices/boot.efi
+# ./usr/standalone/i386/boot.efi
+
+#################################################
+#                   Framework                   #
+# # # # # # # # # # # # # # # # # # # # # # # # #
+
+# Print Error info
+func_err() {
+    [[ "$4_$6" == exit_${0##*/}* ]] && {
+        local err=`awk 'NR=='$2'{print}' $0`;
+        # Print line text after '#'
+        printf "\033[31mError:${err##*#} \033[33m($0:$2)\033[0m\n" >&2;
+        exit $(($5 % 256))
+    };
+
+    # WARRAN: 0 <= $? <= 255, return 256: $? = 0
+    [ "$4" == "return" ] && exit $(($5 % 256));
+
+    # Get script line
+    [ $1 == 127 ] && {
+        # No function found
+        printf "\033[31mError: No function found \033[0m\n" >&2;
+        exit 1
+    };
+
+    exit 0
+}
+
+# Show function info
+func_annotation() {
+    local i j k OLDIFS IFS=$IFS\({;
+    # Cache IFS
+    OLDIFS=$IFS;
+
+    [ "$1" ] && {
+        # show select
+        while read i j; do
+            # Make array splite with #
+            [ "$i" == "###" ] && {
+                IFS=#;
+                k=($j);
+                # Reset IFS
+                IFS=$OLDIFS
+            };
+            # At target func name
+            [ "$k" -a "$i" == "${0##*/}_$1" ] && {
+                # Print all annotation
+                for i in ${!k[@]}; do
+                    printf "${k[$i]}\n";
+                done;
+                return 0
+            };
+            # Reset var
+            [ "${i%%_*}" == "${0##*/}" -a "$j" == ")" ] && unset k;
+        done < "$0"; # Scan this script
+        return 1
+    } || {
+        # show all
+        while read i j; do
+            # Cache intro
+            [ "$i" == "###" ] && k=${j%%#*};
+            # At func name
+            [ "${i%_*}" == "${0##*/}" -a "$j" == ")" ] && {
+                # Left aligned at 15 char
+                printf "%-15s$k\n" ${i##*_};
+                # Clear var
+                unset k
+            };
+        done < "$0"; # Scan this script
+    }
+
+}
+
+# Cache exit
+trap 'func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
+
+# # # # # # # # # # # # # # # # # # # # # # # # #
+#                   Framework                   #
+#################################################
+
+# Test if help
+[[ ! "$1" || "$1" == "-h" || "$1" == "--help" ]] && {
+    func_annotation | sort;
+    exit 0
+} || [[ "$2" == "-h" || "$2" == "--help" ]] && {
+    # Test if help
+    func_annotation $1 || printf "\033[31mError: No function found \033[0m\n" >&2;
+    exit $?
+};
+
+# main
+${0##*/}_"$@"

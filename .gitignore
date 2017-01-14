@@ -1,0 +1,22 @@
+# Ignore all
+*
+
+# Avoid ignoring directory
+!*/
+
+# Avoid ignoring some suffix
+!*.cmd
+!*.in[if]
+!*.py
+!*.sh
+!*.vbs
+
+# Avoid ignoring default file
+!.gitignore
+!README.md
+!LICENSE
+!lib
+!3rd
+
+# Ignore some directory
+.*/
