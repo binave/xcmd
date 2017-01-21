@@ -105,7 +105,7 @@ REM Show INFO or ERROR
         if !\\\i!==1 set \\\tmp=%%~nxa
         if !\\\i!==2 call :this\rpad !\\\tmp! %\\\col%
         if !\\\i! geq 2 call :this\rpad %%~nxa %\\\col%
-    ) else call :this\rpad %%~nxa & echo.%%~b
+    ) else call :this\2la %%~nxa "%%~b"
     REM Close rpad
     if !\\\i! gtr 0 call :this\rpad 0 0
     REM Display func or call func
@@ -131,13 +131,25 @@ REM Show INFO or ERROR
     if "%~1%~2" neq "" goto %0
     exit /b 0
 
-REM Right pads spaces
+REM Make the second column left-aligned
+:this\2la
+    if "%~2"=="" exit /b 1
+    setlocal enabledelayedexpansion
+    set \\\str=%~10123456789abcdef
+    if "%\\\str:~31,1%" neq "" call :strModulo
+    set /a \\\len=0x%\\\str:~15,1%
+    set "\\\spaces=                "
+    echo %~1!\\\spaces:~0,%\\\len%!%~2
+    endlocal
+    exit /b 0
+
+REM Use right pads spaces, make all column left-aligned
 :this\rpad
     if "%~1"=="" exit /b 1
     if "%~2" neq "" if 1%~2 lss 12 (if defined \\\rpad echo. & set \\\rpad=) & exit /b 0
     setlocal enabledelayedexpansion
     set \\\str=%~10123456789abcdef
-    if "%\\\str:~31,1%" neq "" call :rpad
+    if "%\\\str:~31,1%" neq "" call :strModulo
     if "%~2" neq "" if 1%\\\rpad% geq 1%~2 echo. & set /a \\\rpad-=%~2-1
     set /a \\\len=0x%\\\str:~15,1%
     set "\\\spaces=                "
@@ -147,8 +159,8 @@ REM Right pads spaces
     endlocal & set \\\rpad=%\\\rpad%
     exit /b 0
 
-REM for :this\rpad
-:rpad
+REM for :lib\2la and :lib\rpad and
+:strModulo
     set /a \\\rpad+=1
     set \\\str=%\\\str:~15%
     if "%\\\str:~31,1%"=="" exit /b 0
@@ -462,7 +474,7 @@ REM Enable ServicesForNFS
 :: dism ::
 ::::::::::
 
-::: "Wim manager" "" "usage: %~n0 wim [option] [args ...]" "    --new,    -n [target_dir_path] [[image_name]]            Capture file/directory to wim" "    --apply,  -a [wim_path] [[output_path] [image_index]]    Apply WIM file" "    --mount,  -m [wim_path] [mount_path] [[image_index]]     Mount wim" "    --umount, -u [mount_path]                                Unmount wim" "    --commit, -c [mount_path]                                Unmount wim with commit" "    --export, -e [source_wim_path] [target_wim_path] [image_index]    Export wim image"
+::: "Wim manager" "" "usage: %~n0 wim [option] [args ...]" "    --new,    -n [target_dir_path] [[image_name]]            Capture file/directory to wim" "    --apply,  -a [wim_path] [[output_path] [image_index]]    Apply WIM file" "    --mount,  -m [wim_path] [mount_path] [[image_index]]     Mount wim" "    --umount, -u [mount_path]                                Unmount wim" "    --commit, -c [mount_path]                                Unmount wim with commit" "    --export, -e [source_wim_path] [target_wim_path] [image_index] [[compress_level]]    Export wim image" "                                   compress level: 0 none, 1 fast, 2 recovery, 3 WIMBoot, 4 max"
 :::: "option invalid" "lib.cmd not found" "dism version is too old" "target not found" "need input image name" "dism error" "wim file not found" "not wim file" "output path allready use" "output path not found" "Not a path" "Target wim index not select"
 :dis\wim
     call :this\iinpath lib.cmd || exit /b /b 2
@@ -572,7 +584,15 @@ REM for wim
     if "%~f2" neq "%~2" exit /b 11
     if /i "%~x2" neq ".wim" exit /b 8
     if "%~3"=="" exit /b 12
-    dism.exe /Export-Image /SourceImageFile:"%~f1" /SourceIndex:%3 /DestinationImageFile:"%~f2" /Bootable /CheckIntegrity
+    setlocal
+    set \\\compress=
+    if "%~4"=="0" set \\\compress=/Compress:none
+    if "%~4"=="1" set \\\compress=/Compress:fast
+    if "%~4"=="2" set \\\compress=/Compress:recovery
+    if "%~4"=="3" set \\\compress=/WIMBoot
+    if "%~4"=="4" set \\\compress=/Compress:max
+    dism.exe /Export-Image /SourceImageFile:"%~f1" /SourceIndex:%3 /DestinationImageFile:"%~f2" /Bootable %\\\compress% /CheckIntegrity
+    endlocal
     exit /b 0
 
 REM ::: ""
@@ -591,6 +611,15 @@ REM         if "%%f"=="Edition" set /p=%%h <nul
 REM         if "%%g"=="(Default)" set /p=%%f <nul
 REM     )
 REM     exit /b 0
+
+::: "Component Cleanup" "" "usage: %~n0 cleanup [path]"
+:::: "option invalid" "lib.cmd not found" "not a directory"
+:dis\cleanup
+    if "%~1"=="" dism.exe /Online /Cleanup-Image /StartComponentCleanup /ResetBase & exit /b 0
+    call :this\iinpath lib.cmd || exit /b 2
+    call lib.cmd idir "%~1" || exit /b 3
+    dism.exe /Image:%1 /Cleanup-Image /StartComponentCleanup /ResetBase
+    exit /b 0
 
 ::: "Drivers manager" "" "usage: %~n0 drv [option] [args...]" "    --add    [os_path] [drv_path ...]   Add drivers offline" "    --list   [[os_path]]                Show OS drivers list" "    --remove [os_path] [[name].inf]     remove drivers, 3rd party drivers like oem1.inf"
 :::: "option invalid" "lib.cmd not found" "OS path not found" "Not drivers name" "dism error"
@@ -843,7 +872,7 @@ REM for :dis\officekms
 :::: "lib.cmd not found"
 :dis\batchrc
     if /i "%~1"=="-d" >nul 2>nul (
-        rmdir "%USERPROFILE%\.batchrc"
+        erase "%USERPROFILE%\.batchrc"
         reg.exe delete "HKCU\SOFTWARE\Microsoft\Command Processor" /v AutoRun /f
         exit /b 0
     )
@@ -856,21 +885,23 @@ REM for :dis\officekms
     > "%USERPROFILE%\.batchrc" (
         echo ;use ^>^&3 in script can print
         echo set devmgr_show_nonpresent_devices=1
+        echo set path=%%path%%;%~dp0
     )
-    call lib.cmd trimpath path
-    >> "%USERPROFILE%\.batchrc" echo set path=%path%
     endlocal
     exit /b 0
 
-::: "Compresses the specified files." "" "usage: %~n0 compactexe [target_path]"
+::: "Compresses the specified files." "" "usage: %~n0 cexe [target_path]"
 :::: "Target not found" "OS is too old"
-:dis\compactexe
+:dis\cexe
+::: "Uncompress the specified files." "" "usage: %~n0 ucexe [target_path]"
+:::: "Target not found" "OS is too old"
+:dis\ucexe
     if not exist "%~1" exit /b 1
     call :this\iinpath lib.cmd || exit /b 1
     call lib.cmd ivergeq 10.0 || exit /b 2
-    compact.exe /c /exe /a /i /q /s:"%~f1"
+    if "%0"==":dis\cexe" compact.exe /c /exe /a /i /q /s:"%~f1"
+    if "%0"==":dis\ucexe" compact.exe /u /exe /a /i /q /s:"%~f1"
     exit /b 0
-
 
 ::: "Hardware ids manager" "" "usage: %~n0 devf [option] [args ...]" "    --get,    -g                               display hardware ids" "    --filter, -f [devinf_path] [drivers_path]  search device inf" "e.g." "    %~n0 devf -g" "    %~n0 devf -f D:\d.log D:\drv"
 :::: "option invalid" "lib.cmd not found" "drivers info file not found" "drivers path error"

@@ -113,7 +113,7 @@ REM Show INFO or ERROR
         if !\\\i!==1 set \\\tmp=%%~nxa
         if !\\\i!==2 call :%~n0\rpad !\\\tmp! %\\\col%
         if !\\\i! geq 2 call :%~n0\rpad %%~nxa %\\\col%
-    ) else call :%~n0\rpad %%~nxa & echo.%%~b
+    ) else call :%~n0\2la %%~nxa "%%~b"
     REM Close rpad
     if !\\\i! gtr 0 call :%~n0\rpad 0 0
     REM Display func or call func
@@ -139,14 +139,27 @@ REM Show INFO or ERROR
     if "%~1%~2" neq "" goto %0
     exit /b 0
 
-::: "Right pads spaces" "" "usage: %~n0 rpad [str] [[col_size]]" "       %~n0 rpad 0 0" "       close command" "       col_size is cols / 15" "       print nobr, but auto LF by col_size"
+::: "Make the second column left-aligned" "" "    default size is 15" "usage: %~n0 2la [str_1] [str_2]"
+:::: "input string is empty"
+:lib\2la
+    if "%~2"=="" exit /b 1
+    setlocal enabledelayedexpansion
+    set \\\str=%~10123456789abcdef
+    if "%\\\str:~31,1%" neq "" call :strModulo
+    set /a \\\len=0x%\\\str:~15,1%
+    set "\\\spaces=                "
+    echo %~1!\\\spaces:~0,%\\\len%!%~2
+    endlocal
+    exit /b 0
+
+::: "Use right pads spaces, make all column left-aligned" "" "usage: %~n0 rpad [str] [[col_size]]" "       %~n0 rpad 0 0" "       close command" "       col_size is cols / 15" "       print nobr, but auto LF by col_size"
 :::: "input string is empty"
 :lib\rpad
     if "%~1"=="" exit /b 1
     if "%~2" neq "" if 1%~2 lss 12 (if defined \\\rpad echo. & set \\\rpad=) & exit /b 0
     setlocal enabledelayedexpansion
     set \\\str=%~10123456789abcdef
-    if "%\\\str:~31,1%" neq "" call :rpad
+    if "%\\\str:~31,1%" neq "" call :strModulo
     if "%~2" neq "" if 1%\\\rpad% geq 1%~2 echo. & set /a \\\rpad-=%~2-1
     set /a \\\len=0x%\\\str:~15,1%
     set "\\\spaces=                "
@@ -156,8 +169,8 @@ REM Show INFO or ERROR
     endlocal & set \\\rpad=%\\\rpad%
     exit /b 0
 
-REM for :lib\rpad
-:rpad
+REM for :lib\2la and :lib\rpad and
+:strModulo
     set /a \\\rpad+=1
     set \\\str=%\\\str:~15%
     if "%\\\str:~31,1%"=="" exit /b 0
@@ -656,7 +669,7 @@ REM     exit /b 0
     REM override mac to ipv4
     for /f "usebackq tokens=1*" %%a in (
         `call lib.cmd sip %\\\keys%`
-    ) do call :map -p %%a %%b 1
+    ) do call :map -p %%a %%b 1 && call :lib\2la %%~a %%b
 
     REM replace hosts in cache
     REM use tokens=2,3 will replace %%a
@@ -690,7 +703,7 @@ REM     exit /b 0
     goto :eof
 
 ::: "Search IPv4 by MAC or Host name" "" "usage: %~n0 sip [mac]"
-:::: "MAC addr is empty" "args not mac addr"
+:::: "MAC addr or Host name is empty" "args not mac addr"
 :lib\sip
     if "%~1"=="" exit /b 1
     setlocal enabledelayedexpansion
@@ -729,7 +742,7 @@ REM     exit /b 0
     ) do for /l %%b in (
         1,1,254
     ) do (
-        call :this\thread_pool 50 cmd.exe ping
+        call :this\thread_valve 50 cmd.exe ping
         start /b lib.cmd "" sip %%~na.%%b %\\\macs%
     )
     endlocal
@@ -747,24 +760,20 @@ REM For thread sip
     ) do for /f "usebackq tokens=1,2 delims=\" %%d in (
         '%%c'
     ) do if /i "%%b"=="%%d" if "%%e"=="" (
-        call :lib\rpad %%d
-        echo %%a
-    ) else (
-        call :lib\rpad %%e
-        echo %%a
-    )
+        call :lib\2la %%d %%a
+    ) else call :lib\2la %%e %%a
     exit /b 0
 
-REM thread pool, usage: :this\thread_pool [count] [name] [commandline]
-:this\thread_pool
+REM thread valve, usage: :this\thread_valve [count] [name] [commandline]
+:this\thread_valve
     set /a \\\thread\count+=1
     if %\\\thread\count% lss %~1 exit /b 0
-    :thread_pool\loop
+    :thread_valve\loop
         set \\\thread\count=0
         for /f "usebackq skip=2" %%a in (
             `wmic.exe process where "name='%~2' and commandline like '%%%~3%%'" get processid 2^>nul`
         ) do if %%a gtr 0 set /a \\\thread\count+=1
-        if %\\\thread\count% gtr %~1 goto thread_pool\loop
+        if %\\\thread\count% gtr %~1 goto thread_valve\loop
     exit /b 0
 
 REM Map
@@ -1075,7 +1084,7 @@ REM if /i "%~x1"==".vbs" screnc.exe %1 ./%~n1.vbe
     popd
     cabarc.exe -m LZX:21 n ".\%~n1.tmp" %*
 
-    REM Complate
+    REM Complete
     :cab\eof
 	if exist ".\%~n1.tmp" rename ".\%~n1.tmp" "%~n1.cab"
     exit /b 0

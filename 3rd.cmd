@@ -105,7 +105,7 @@ REM Show INFO or ERROR
         if !\\\i!==1 set \\\tmp=%%~nxa
         if !\\\i!==2 call :this\rpad !\\\tmp! %\\\col%
         if !\\\i! geq 2 call :this\rpad %%~nxa %\\\col%
-    ) else call :this\rpad %%~nxa & echo.%%~b
+    ) else call :this\2la %%~nxa "%%~b"
     REM Close rpad
     if !\\\i! gtr 0 call :this\rpad 0 0
     REM Display func or call func
@@ -131,13 +131,25 @@ REM Show INFO or ERROR
     if "%~1%~2" neq "" goto %0
     exit /b 0
 
-REM Right pads spaces
+REM Make the second column left-aligned
+:this\2la
+    if "%~2"=="" exit /b 1
+    setlocal enabledelayedexpansion
+    set \\\str=%~10123456789abcdef
+    if "%\\\str:~31,1%" neq "" call :strModulo
+    set /a \\\len=0x%\\\str:~15,1%
+    set "\\\spaces=                "
+    echo %~1!\\\spaces:~0,%\\\len%!%~2
+    endlocal
+    exit /b 0
+
+REM Use right pads spaces, make all column left-aligned
 :this\rpad
     if "%~1"=="" exit /b 1
     if "%~2" neq "" if 1%~2 lss 12 (if defined \\\rpad echo. & set \\\rpad=) & exit /b 0
     setlocal enabledelayedexpansion
     set \\\str=%~10123456789abcdef
-    if "%\\\str:~31,1%" neq "" call :rpad
+    if "%\\\str:~31,1%" neq "" call :strModulo
     if "%~2" neq "" if 1%\\\rpad% geq 1%~2 echo. & set /a \\\rpad-=%~2-1
     set /a \\\len=0x%\\\str:~15,1%
     set "\\\spaces=                "
@@ -148,7 +160,7 @@ REM Right pads spaces
     exit /b 0
 
 REM for :this\rpad
-:rpad
+:strModulo
     set /a \\\rpad+=1
     set \\\str=%\\\str:~15%
     if "%\\\str:~31,1%"=="" exit /b 0
@@ -294,7 +306,7 @@ REM Set vm variable
     REM Init variable
     call :vbox\setVar vms \\\vms
     call :vbox\setVar runningvms \\\run
-    REM sort name auto complate
+    REM sort name auto complete
     set vm=
     set i=0
     for /f "usebackq delims==" %%a in (
@@ -349,7 +361,7 @@ REM Reg VM names
     REM -ast stream_specifier  select desired audio stream
     call lib.cmd inum %~2 && set "\\\stream_specifier=-ast %~2"
     call lib.cmd iDir %1 && for /r "%~1" %%a in (
-        *.alac *.ape *.avi *.divx *.flac *.m4a *.mkv *.mp? *.ogg *.rm *.rmvb *.tta *.tak *.wav *.wm?
+        *.alac *.ape *.avi *.divx *.flac *.flv *.m4a *.mkv *.mp? *.ogg *.rm *.rmvb *.tta *.tak *.vob *.wav *.wm?
     ) do call :this\ffplay "%%a"
     call lib.cmd iDir %1 || call :this\ffplay %1
     endlocal
@@ -359,7 +371,7 @@ REM Reg VM names
     REM -sn ::disable subtitling
     REM -ac 2 ::ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) ::Convert the 5.1 track to stereo
     for %%a in (
-        avi divx mkv mp4 mpg rm rmvb wmv
+        avi divx flv mkv mp4 mpg rm rmvb vob wmv
     ) do if /i "%~x1"==".%%a" ffplay.exe %\\\stream_specifier% -ac 2 -sn -autoexit %1
     for %%a in (
         alac ape flac m4a mp3 ogg tta tak wav wma

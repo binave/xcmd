@@ -25,7 +25,7 @@ lib sip
 
         Search IPv4 by MAC or Host name
         通过 MAC 地址或别名搜索 IP 。（仅搜索本网段最后 255 个）
-        （别名情参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
+        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
 
 lib hosts
 
@@ -88,6 +88,9 @@ lib.cmd
 
         4.  HELP: lib -h or lib [func] -h
             有关函数用法，使用 lib.cmd -h 或 lib.cmd ［函数名］-h。
+
+        2la             Make the second column left-aligned
+                        将第二列左对齐。
 
         cab             Create cab package
                         压缩 cab 包。
@@ -202,7 +205,7 @@ lib.cmd
 
         sip             Search IPv4 by MAC or Host name
                         通过 MAC 地址或别名，搜索设备 IP。
-                        （别名情参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
+                        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
 
         skiprint        Print text skip some line
                         跳过指定行输出文件的文本内容到另一个空文本中。
@@ -247,8 +250,10 @@ dis.cmd
         bootfile        Copy Window PE boot file from CDROM
                         从 CDROM 中复制 winpe 基本启动文件。
 
-        compactexe      Compresses the specified files.
+        cexe            Compresses the specified files.
                         文件压缩（仅支持 win 10）
+
+        cleanup         Component Cleanup
 
         cpreg           Copy reg to a reg file
                         reg 文件导出，用于批量修改注册表。
@@ -279,6 +284,8 @@ dis.cmd
 
         spower          Set power config as server type
                         使用服务器的电源模式。（不休眠，关闭盖子不进行任何操作）
+
+        ucexe           Uncompress the specified files.
 
         vhd             Virtual Hard Disk manager
                         虚拟磁盘管理。
@@ -349,9 +356,6 @@ lib     (shell script)
         aapp            Allow all app install
                         允许 mac 安装任意应用。
 
-        addrsa          Copy rsa public key to remote
-                        将本地的公钥上传至远端。
-
         cd2i            Convert a DMG file to ISO
                         将 DMG 文件转换为 ISO 格式。
 
@@ -395,10 +399,22 @@ lib     (shell script)
         lip             Show IPv4
                         显示本机的 ip。
 
+        log             Tag date time each line
+                        给输出添加日志标记。
+
+        low             Convert lowercase
+                        将字符转换成小写。
+
         nohid           No hidden directory
 
         own             Make owner
                         重置文件夹所有者。
+
+        plist           Plist editer
+                        操作
+
+        pubrsa          Copy rsa public key to remote
+                        将本地的公钥上传至远端。
 
         rboot           Rebuild boot file
                         重新建立启动文件。
@@ -410,7 +426,7 @@ lib     (shell script)
 
         sip             Search IPv4 by MAC or Host name
                         通过 MAC 地址或别名，搜索设备 IP。
-                        （别名情参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
+                        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
 
         tailto          save tail n line
                         保留文件的最后 n 行。
@@ -426,6 +442,9 @@ lib     (shell script)
 
         unascii         Print text not in ASCII char
                         输出非 ASCII 字符。
+
+        upp             Convert uppercase
+                        将字符转换为大写。
 
         vnc             Connect vnc server
                         链接 vnc 服务端。

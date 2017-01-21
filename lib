@@ -40,7 +40,7 @@ lib_cd2i() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     [ -f "$1" ] || exit 1; # dmg file not found
     [ "${1##*.}" == "dmg" ] || exit 1; # file not dmg
-    hdiutil convert $1 -format UDTO -o "${0%.*}.iso";
+    hdiutil convert "$1" -format UDTO -o "${0%.*}.iso";
     return 0
 }
 
@@ -51,7 +51,7 @@ lib_ci2d() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     [ -f "$1" ] || exit 1; # iso file not found
     [ "${1##*.}" == "iso" ] || exit 1; # file not iso
-    hdiutil convert $1 -format UDRW -o "${0%.*}.dmg";
+    hdiutil convert "$1" -format UDRW -o "${0%.*}.dmg";
     return 0
 }
 
@@ -64,13 +64,16 @@ lib_udf() {
     return 0
 }
 
-### Get apk file from AppStore #Usage: gpkg [[countdown_sec]] #    1. Login AppStore and Install App #    2. Run this command before download complate #    3. Keep shell open
+### Get apk file from AppStore #Usage: gpkg [[countdown_sec]] #    1. Login AppStore and Install App #    2. Run this command before download complete #    3. Keep shell open
 lib_gpkg() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     [ `ps -ef | grep -c "${0##*/} gpkg"` -gt 3 ] && exit 1; # gpkg command is already running
 
     local i anchor pkg=() tmp=/private/var/tmp countdown=$((${1-1} * 60)) sec_on=`date +%s`;
-    printf "[gpkg]: Will listen \033[4m$countdown\033[0m sec.\n";
+
+    {
+
+    printf "Will listen \033[4m$countdown\033[0m sec.\n";
 
     # Reg hard link from /private/var/tmp
     pkg_serial_number $tmp;
@@ -78,12 +81,12 @@ lib_gpkg() {
     # Infinite loop
     while :; do
 
-        # Exit if all download complate
+        # Exit if all download complete
         [ $countdown -lt 0 -a ${#pkg[@]} == 0 ] && {
-            printf "[gpkg]: Exit.\n";
+            printf "Exit.\n";
             break
         };
-        [ $countdown == 0 ] && printf "[gpkg]: Listening \033[4mstop\033[0m.\n";
+        [ $countdown == 0 ] && printf "Listening \033[4mstop\033[0m.\n";
 
         # Search download pkg
         [ $((countdown -= 2)) -ge 0 ] && pkg_serial_number /private/var/folders;
@@ -91,9 +94,9 @@ lib_gpkg() {
         # foreach pkg array
         [ ${#pkg[@]} -gt 0 ] && for i in ${!pkg[@]};
         do
-            # Alleady complate
+            # Alleady complete
             [ "${pkg[i]%/*}" == "$tmp" ] && {
-                pkg_complate "${pkg[$i]}" &
+                pkg_complete "${pkg[$i]}" &
                 unset pkg[$i];
                 continue
             };
@@ -102,22 +105,24 @@ lib_gpkg() {
 
             # Add hard link
             [ -f "$anchor" ] || {
-                ln "${pkg[$i]}" "$anchor" && printf "[gpkg]: Add \033[4m${pkg[i]##*/}\033[0m.\n"
+                ln "${pkg[$i]}" "$anchor" && printf "Add \033[4m${pkg[i]##*/}\033[0m.\n"
             };
 
-            # Download complate
+            # Download complete
             [ -f "${pkg[$i]}" ] || {
                 unset pkg[$i];
-                pkg_complate "$anchor" &
+                pkg_complete "$anchor" &
             };
         done;
 
         # Timing
         i=$((`date +%s` - $sec_on));
-        [ $((countdown % 10)) == 0 ] && printf "[gpkg]: Count: ${#pkg[@]}, UseTime: `lib_dhms $i`\n";
+        [ $((countdown % 10)) == 0 ] && printf "Count: ${#pkg[@]}, UseTime: `lib_dhms $i`\n";
 
         sleep 2;
     done;
+
+    } | lib_log [ " GPKG] "
 
     # wait all thread over
     wait
@@ -129,24 +134,21 @@ pkg_serial_number() {
     while read k v; do
         # Put in map
         [ "$v" ] && pkg[$k]="$v";
-    done <<-SH
-    `find "$1" -type f -iregex ".*[0-9]\.pkg" -exec ls -i {} \; 2>&-`
-SH
-
+    done < <(find "$1" -type f -iregex ".*[0-9]\.pkg" -exec ls -i {} \; 2>/dev/null);
     return 0
 }
 
 # hash and move to ~/Downloads
-pkg_complate() {
+pkg_complete() {
     [ -f "$1" ] || return 1;
     local NL="${IFS}        " hcode tmp=$((`date +%s` - $sec_on));
-    hcode="[gpkg]: ${1##*/}${NL}SIZE: `du -h "$1" | awk '{print $1}'`${NL}TIME: `lib_dhms $tmp`";
+    hcode="${1##*/}${NL}SIZE: `du -h "$1" | awk '{print $1}'`${NL}TIME: `lib_dhms $tmp`";
     tmp=`openssl dgst -md5 "$1"` && hcode+="${NL}MD5:${tmp##*=}"; # Hash md5
     tmp=`openssl dgst -sha1 "$1"` && hcode+="${NL}SHA1:${tmp##*=}"; # Hash sha1
     tmp=`openssl dgst -sha256 "$1"` && hcode+="${NL}SHA256:${tmp##*=}"; # Hash sha256
     printf "$hcode\n";
-    mv "$1" ~/Downloads 2>&- || {
-        cp "$1" ~/Downloads && printf "[gpkg]: \033[31m$1 still exist\033[0m\n"
+    mv "$1" ~/Downloads 2>/dev/null || {
+        cp "$1" ~/Downloads && printf "\033[31m$1 still exist\033[0m\n"
     }
 }
 
@@ -172,16 +174,14 @@ lib_cim(){
     local src;
     while read src; do
         break;
-    done <<-SH
-    `find /Applications/Install* -iname "createinstallmedia" 2>&-`
-SH
+    done < <(find /Applications/Install* -iname "createinstallmedia" 2>/dev/null);
 
     [ -f "$src" ] || exit 1; # install source not found
     sudo "$src" --volume "$1" --applicationpath "${src:0:${#src}-38}" --nointeraction;
     return 0
 }
 
-### Write img to disk #Usage: sdd [img_path] [disk_path] #       e.g. sdd /Volumes/Macintosh\\ HD/docker.iso /dev/disk2 #       e.g. iof /Volumes/Macintosh\\ HD/docker.iso /Volumes/1
+### Write img to disk #Usage: sdd [img_path] [disk_path] #       e.g. sdd /Volumes/Macintosh\\ HD/docker.img /dev/disk2 #       e.g. iof /Volumes/Macintosh\\ HD/docker.img.gz /Volumes/1
 lib_sdd (){
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     # caller 0;
@@ -191,18 +191,37 @@ lib_sdd (){
         target=$2
     } || {
         # cut mount info
-        while read i j k l; do
-            [ "$k" == "$2" ] && target=$i
-        done <<-SH
-            `mount`
-SH
+        while read i j k; do
+            [ "${k%% (*}" == "$2" ] && target=$i
+        done < <(mount)
     }
     # trim
     [[ $target == *disk[0-9]s[0-9] ]] && target=${target%s*};
-    diskutil unmountDisk $target || exit 1; # Can not unmount this disk
-    sudo dd if="$1" of=$target bs=1m || return 1;
+
+    if [ "${1##*.}" == "img" ]; then
+        diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
+        sudo dd if="$1" of=$target bs=4m || exit 1; # dd error
+    elif [ "${1##*.}" == "iso" ]; then
+        diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
+        hdiutil convert "$1" -format UDRW -o "${1%.*}.dmg" >/dev/null;
+        sudo dd if="${1%.*}.dmg" of=$target bs=4m || exit 1; # dd error
+        # sudo dd if="${1%.*}.dmg" of=$target bs=4m & while killall -USR1 dd; do
+        #     sleep 10;
+        # done | lib_log [ "] "
+    elif [ "${1##*.}" == "gz" ]; then
+        diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
+        which gzcat >/dev/null 2>&1 || exit 1; # gzcat command not found
+        gzcat "$1" | sudo dd of=$target bs=4m || exit 1; # dd error
+    elif [ "${1##*.}" == "xz" ]; then
+        diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
+        which xzcat >/dev/null 2>&1 || exit 1; # xzcat command not found
+        xzcat "$1" | sudo dd of=$target bs=4m || exit 1; # dd error
+    else
+        exit 1; # format not support
+    fi
+
     sync;
-    diskutil eject $target
+    diskutil eject $target >/dev/null
     return 0
 }
 
@@ -218,15 +237,17 @@ lib_own(){
     return 0
 }
 
-### Copy rsa public key to remote #Usage: addrsa [host_login_info] [[public_key_other_name]]
-lib_addrsa () {
+### Copy rsa public key to remote #Usage: pubrsa [[user@]host] [[alias]]
+lib_pubrsa () {
     [ "$1" ] || exit 1; # first args is empty
-    local pub REPLY=$PWD;
-    [ -f "$HOME/.ssh/id_rsa$2.pub" ] || exit 1; # public key not found
-    cd "$HOME/.ssh";
-    pub="`cat id_rsa$2.pub`";
-    cd "$REPLY";
-    ssh $1 "echo $pub >> ~/.ssh/authorized_keys";
+    local rsa_pub;
+    rsa_pub=`cat ~/.ssh/id_rsa$2.pub 2>/dev/null` || ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa$2
+    ssh $1 <<-SH
+    mkdir ~/.ssh 2>/dev/null;
+    echo "$pub" >> ~/.ssh/authorized_keys;
+    chmod 600 ~/.ssh/authorized_keys;
+    chmod 700 ~/.ssh
+SH
     return 0
 }
 
@@ -297,7 +318,7 @@ lib_sip() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
 
     # Clear arp cache
-    sudo arp -ad >&- 2>&- || return 1;
+    sudo arp -ad >/dev/null 2>&1 || return 1;
 
     local i j l=0 mac macs=() route_ip=`route -n get default | grep gateway | awk '{print $2}'`;
 
@@ -334,8 +355,8 @@ lib_sip() {
 
     # fork: Resource temporarily unavailable
 
-    # init thread pool
-    thread_pool -i 40;
+    # init thread valve
+    thread_valve -i 40;
 
     # seq 1 254
     for i in {1..254};
@@ -343,60 +364,95 @@ lib_sip() {
         i=${route_ip%.*}.$i;
 
         # get thread
-        thread_pool -g;
+        thread_valve -g;
 
         # multi-thread
         {
-            ping -c 1 -t 1 $i >&- 2>&-;
-            j=`arp $i 2>&-`;
+            ping -c 1 -t 1 $i >/dev/null 2>&1;
+            j=`arp $i 2>/dev/null`;
             for mac in ${macs[@]};
             do
                 [[ $j == *${mac%%.*}* ]] && printf "%-${l}s$i\n" ${mac#*.}
                 # Like nbtstat
-                # [[ `smbutil status $i 2>&-` == *$mac* ]] && printf $i
+                # [[ `smbutil status $i 2>/dev/null` == *$mac* ]] && printf $i
             done
 
             # return thread
-            thread_pool -r;
+            thread_valve -r;
         } &
     done;
 
-    # destroy thread pool
-    thread_pool -d;
+    # destroy thread valve
+    thread_valve -d;
     # clear arp cache
-    sudo arp -ad >&- 2>&-
+    sudo arp -ad >/dev/null 2>&1
 }
 
-# thread pool
-thread_pool() {
+
+# thread valve
+thread_valve() {
     case $1 in
         # use before loop, need count
         --init | -i)
             mkfifo /tmp/$$.fifo;
-            # &4
-            exec 4<> /tmp/$$.fifo;
+            # &255
+            exec 255<> /tmp/$$.fifo;
             rm /tmp/$$.fifo;
             local i;
-            # init thread pool
-            for i in `seq $2 1`; do
+            # init thread valve
+            for i in `seq 1 $2`; do
                 printf "\n";
-            done >&4
+            done >&255
         ;;
         # use after loop
         --destroy | -d)
             wait;
-            exec 4>&-
+            exec 255>&-;
+            exec 255<&-
         ;;
         # use after multi-thread
         --return | -r)
-            printf "\n" >&4
+            printf "\n" >&255
         ;;
         # use before multi-thread
         --get | -g)
-            read -u 4
+            read -u 255
         ;;
     esac
 }
+
+# Only support in dash
+# # thread valve, Usage: thread_valve [-i|-d|-r|-g] [...] [pool_num]
+# thread_valve() {
+#     case $1 in
+#         # use before loop, need count
+#         --init | -i)
+#             # use `ulimit -n` darwin:256 linux:1023
+#             local i=$((${3:-0}+3)) j;
+#             mkfifo /tmp/$$$3.fifo;
+#             eval "exec $i<> /tmp/$$$3.fifo";
+#             rm -f /tmp/$$$3.fifo
+#             # init thread valve
+#             for j in `seq 1 $2`; do
+#                 printf "\n";
+#             done >&$i
+#         ;;
+#         # use after loop
+#         --destroy | -d)
+#             wait;
+#             local i=$((${2:-0}+3));
+#             eval "exec $i>&-; exec $i<&-";
+#         ;;
+#         # use after multi-thread
+#         --return | -r)
+#             printf "\n" >&$((${2:-0}+3))
+#         ;;
+#         # use before multi-thread
+#         --get | -g)
+#             read -u $((${2:-0}+3))
+#         ;;
+#     esac
+# }
 
 hosts() {
     printf %s "
@@ -419,15 +475,14 @@ lib_hosts() {
 
     # get map1 key array in REPLY
     _map -ks 1;
-    local i j k host_cache host_new n="
+    local i j k host_new n="
 "
-    while read i j k;
+    while read i;
     do
         # override mac addr in map1
-        _map -p "$i" "$j" 1
-    done <<-SH
-    `lib_sip ${REPLY[@]}`
-SH
+        _map -p $i 1;
+        echo "$i"
+    done < <(lib_sip ${REPLY[@]});
 
     # clear map0, sip command use it before
     _map -c;
@@ -440,9 +495,6 @@ SH
         lib_iipv4 ${REPLY[i + 1]} && _map -p "${REPLY[$i]}" "${REPLY[i + 1]}";
     done
 
-    # cache hosts context
-    host_cache="`cat /etc/hosts`";
-
     while read i;
     do
         k=($i);
@@ -454,7 +506,7 @@ SH
             };
         }
         host_new+="$i$n";
-    done <<< "$host_cache"
+    done < <(cat /etc/hosts);
 
     # empty array
     _map -a || unset REPLY;
@@ -576,7 +628,7 @@ lib_scpp() {
 lib_tailto() {
     [ -f "$1" ] || exit 1; # File not found
     lib_inum $2 || exit 1; # Not number
-    [ "$2" -gt 0 ] 2>&- || exit 1; # Num too small
+    [ "$2" -gt 0 ] 2>/dev/null || exit 1; # Num too small
     mv "$1" "$1.swp";
     tail -$2 "$1.swp" > "$1";
     rm -f "$1.swp";
@@ -588,6 +640,50 @@ lib_inum() {
     [ "$1" ] || return 2;
     [[ $1 != *[^0-9]* && $1 != 0[0-9]* ]] || return 1;
     return 0
+}
+
+### Tag date time each line #Usage: [command] | log [[prefix]][[middle]][[suffix]]
+lib_log() {
+    # gawk '{print strftime("[%F %T]")" "$0}'
+    local l;
+    while read l; do
+        echo "$1`date '+%F %T'`$2$l$3";
+    done
+}
+
+### Plist editer #Usage: plist [--xml|-x|--json|-j|--binary|-b] [path...]
+lib_plist() {
+    [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
+    which plutil >/dev/null 2>&1 || xcode-select --install 2>/dev/null
+    [ "${2##*.}" == "plist" ] || exit 1; # file format not support
+    case $1 in
+        --xml|-x)
+            [ -f "$2" ] || exit 1; # file not exist
+            plutil -convert xml1 "$2" -o - || exit 1; # plutil error
+        ;;
+        --json|-j)
+            [ -f "$2" ] || exit 1; # file not exist
+            plutil -convert json -r "$2" -o - || exit 1; # plutil error
+            printf "\n"
+        ;;
+        --binary|-b)
+            [ -f "$2" ] && exit 1; # file aleady exist
+            sudo plutil -convert binary1 -o "$2" - || exit 1; # plutil error
+        ;;
+        --load|-l)
+            # local p;
+            # p=`find ~/Library/LaunchAgents /Library/LaunchAgents /System/Library/LaunchAgents -name "*$2*.plist"``
+            # ~/Library/LaunchDaemons /Library/LaunchDaemons /System/Library/LaunchDaemons
+            # /Library/StartupItems /System/Library/StartupItems
+            # sudo launchctl load -wF "$p"
+        ;;
+        --unload|-u)
+            # sudo launchctl unload -w "$p"
+        ;;
+        *)
+            exit 1; # option not support
+        ;;
+    esac
 }
 
 #################
@@ -1026,9 +1122,7 @@ load_ini() {
         elif [ $tag ]; then
             _map -p ${l%=*} ${l#*=} $2
         fi
-    done <<-SH
-        `cat ${0%/*}/*.ini ${0%/*}/.*.ini ~/*.ini ~/.*.ini 2>&- | awk -F';' '{print $1}'`
-SH
+    done < <(cat ${0%/*}/*.ini ${0%/*}/.*.ini ~/*.ini ~/.*.ini 2>/dev/null | awk -F';' '{print $1}');
 
     while read l tag;
     do
@@ -1036,12 +1130,33 @@ SH
             imac $tag || continue
         };
         _map -p "$l" "$tag" $2;
-    done <<-SH
-        `set`
-SH
+    done < <(set);
 
    [ `_map -s $2` == 0 ] && return 1;
    return 0
+}
+
+
+# args path size(MB)
+ramfs() {
+    # https://gist.github.com/Roman2K/3238fb441e298369198e
+    case $1 in
+        --mount | -m)
+            # hdid = hdiutil attach
+            local ramfs_dev=`hdid -nomount ram://$(($3 * 1024 * 1024 / 512))`;
+            newfs_hfs -v "ramfs" ${ramfs_dev};
+            mkdir -p "$2";
+            # mount -o nobrowse -t hfs ${ramfs_dev} "$2"
+            mount -o noatime -t hfs ${ramfs_dev} "$2"
+        ;;
+        --umount | -u)
+            ramfs_dev=`df "$2" | tail -1 | awk '{ print $1 }'`;
+            umount "$2";
+            hdiutil detach ${ramfs_dev}
+        ;;
+        *)
+        ;;
+    esac
 }
 
 # hdiutil attach *.dmg

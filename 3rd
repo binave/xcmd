@@ -37,14 +37,14 @@
 ### Get docker tags #Usage: tags [image_name]
 _3rd_tags() {
     [ "$1" ] || exit 1; # args is empty
-    local tags=`curl https://index.docker.io/v1/repositories/$1/tags 2>&-`;
+    local tags=`curl https://index.docker.io/v1/repositories/$1/tags 2>/dev/null`;
     tags=${tags/\}]/};
     tags=${tags//\"/};
     printf "${tags//\},/$IFS}" | sed "s/,//g" | awk '{print $2" '$1':"$4}'
     return 0
 }
 
-### VirtualBox Manage (Not complate) #Usage: vbox [start|stop|stopall]
+### VirtualBox Manage (Not complete) #Usage: vbox [start|stop|stopall]
 _3rd_vbox() {
     [ -f /Applications/VirtualBox.app\Contents\MacOS\VBoxManage ] || exit 1; # need install VirtualBox
     return 0
@@ -52,7 +52,7 @@ _3rd_vbox() {
 
 ### Docker batch command #Usage: dockers [start/stop]
 _3rd_dockers() {
-    which docker >/dev/null 2>&- || exit 1; # docker client command not found
+    which docker >/dev/null 2>&1 || exit 1; # docker client command not found
     case $1 in
         start|star|sta)
             docker ps -f status=exited | awk 'NR>1 {print "docker start " $1 | "sh"}'
@@ -86,7 +86,7 @@ _3rd_dockers() {
 
 ### Convert alac,ape,m4a,tta,tak,wav to flac format #Goto workdir and exec cflac command
 _3rd_cflac() {
-    which ffmpeg >/dev/null 2>&- || exit 1; # ffmpeg command not found
+    which ffmpeg >/dev/null 2>&1 || exit 1; # ffmpeg command not found
     [ "`uname`" == "Linux" ] && {
         find -type f -iregex ".*\.\(alac\|ape\|m4a\|tta\|tak\|wav\)" -exec ffmpeg -i {} -acodec flac {}.flac \; || :
     } || {
@@ -97,8 +97,8 @@ _3rd_cflac() {
 
 ### Play all multi-media in directory #Usage: ffplay [[depth]] [path] [[audio_specifier]]
 _3rd_ffplay() {
-    which ffplay >/dev/null 2>&- || exit 1; # ffplay command not found
-    which lib >/dev/null 2>&- || exit 1; # lib command not found
+    which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
+    which lib >/dev/null 2>&1 || exit 1; # lib command not found
     local depth l stream_specifier;
     lib inum $1 && {
         depth="-d $1";
@@ -110,9 +110,7 @@ _3rd_ffplay() {
     [ -d "$1" ] && {
         while read l; do
             _ffplay "$l"
-        done <<-SH
-    `find "$1" $depth -type f -name "*.*" | sort`
-SH
+        done < <(find "$1" $depth -type f -name "*.*" | sort);
         :
     } || {
         _ffplay "$1"
@@ -121,7 +119,7 @@ SH
 
 _ffplay() {
     case "`lib low ${1##*.}`" in
-        avi | divx | mkv | mp4 | mpg | rm | rmvb | wmv)
+        avi | divx | flv | mkv | mp4 | mpg | rm | rmvb | wmv)
             # -ac 2 #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
             # -sn #disable subtitling
             ffplay $stream_specifier -ac 2 -sn -autoexit "$1";
@@ -137,7 +135,7 @@ _ffplay() {
 
 ### List camera device
 _3rd_lcam() {
-    which ffmpeg >/dev/null 2>&- || exit 1; # ffmpeg command not found
+    which ffmpeg >/dev/null 2>&1 || exit 1; # ffmpeg command not found
     local dev
     [ "`uname`" == "Darwin" ] && dev=avfoundation || dev=x11grab;
     ffmpeg -f $dev -list_devices true -i "" 2>&1 | grep \]
@@ -145,8 +143,8 @@ _3rd_lcam() {
 
 ### Display camera #Usage: scam [video_id] [audio_id] [[size]]
 _3rd_scam() {
-    which ffplay >/dev/null 2>&- || exit 1; # ffplay command not found
-    which lib >/dev/null 2>&- || exit 1; # lib command not found
+    which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
+    which lib >/dev/null 2>&1 || exit 1; # lib command not found
     lib inum $1 || exit 1; # first args error
     lib inum $2 || exit 1; # secend args error
     local size dev
@@ -195,17 +193,17 @@ _3rd_m2() {
     _m2=${_m2//\./\/}/${_ver};
 
     # link target to ~/.m2/repository
-    ln -s ~/.m2/repository /tmp/maven2 2>&- || {
+    ln -s ~/.m2/repository /tmp/maven2 2>/dev/null || {
         ps -ef | grep wget | grep -q 'repo1.maven.org/maven2' && exit 1 # m2 command is already running
     };
 
-    which wget >/dev/null 2>&- && {
+    which wget >/dev/null 2>&1 && {
         # Drop args -m -k
         wget -r -np -nc -nH -R html -e robots=off -P /tmp \
         -U 'Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0' \
         http://repo1.maven.org/maven2/${_m2}/ || :
     } || {
-        which curl >/dev/null 2>&- && {
+        which curl >/dev/null 2>&1 && {
             # Not support create directory
             mkdir -p /tmp/maven2/${_m2};
             m2_get http://repo1.maven.org/maven2/${_m2}/;
@@ -233,16 +231,14 @@ m2_get() {
             # Not directory
             curl ${1}$url -o /tmp/maven2/${1:30}$url
         };
-    done <<-SH
-    `curl ${1}index.html | awk -F "a href=\"" '{printf "%s\n",$2}' | awk -F "\"" '{printf "%s\n",$1}' | grep -vE "^$|^\?|^http:\/\/"`
-SH
+    done < <(curl ${1}index.html | awk -F "a href=\"" '{printf "%s\n",$2}' | awk -F "\"" '{printf "%s\n",$1}' | grep -vE "^$|^\?|^http:\/\/")
 
 }
 
 ### Replace brew source #rewurl [app_name] #
 # _3rd_brewurl() {
 #     [ "$1" ] || exit 1; # first args is empty
-#     grep -r \'$1\' /usr/local/Library/Formula/* 2>&-;
+#     grep -r \'$1\' /usr/local/Library/Formula/* 2>/dev/null;
 #     echo -e "\nNeed replace like file:///Volume/Data/$1";
 #     return 0
 # }
