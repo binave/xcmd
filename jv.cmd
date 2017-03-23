@@ -19,8 +19,8 @@ for %%a in (lib.cmd) do if "%%~$path:a"=="" >&2 echo Error: Need lib.cmd& exit /
 
 setlocal enabledelayedexpansion
 :: config
-set JVMSource=Applications\JavaVirtualMachines
-set JVMtarget=Applications\Utilities\JavaVM
+set JVMSource=ProgramFiles\JavaVirtualMachines
+set JVMtarget=ProgramFiles\ExtCmd\JavaVM
 
 :: init
 call :this\getConfigureStatus || >%userprofile%\.jvm call :this\reset
@@ -89,10 +89,13 @@ goto :eof
 
 :this\getCurrentIndex
 	if "%~1"=="" exit /b 1
-	for %%a in (java.exe) do set JAVA_HOME=%%~dp$path:a
+    REM mod path
+    for %%a in (java.exe) do if "%%~dp$path:a"=="" for %%b in (%\\\JVMSourcePath%) do set path=%path%;%%~db\%JVMtarget%\bin
+	REM get JAVA_HOME
+    for %%a in (java.exe) do set JAVA_HOME=%%~dp$path:a
 	if not exist "%JAVA_HOME%" exit /b 1
 	set JAVA_HOME=%JAVA_HOME:~0,-5%
-	call :this\getJvmInfo %JAVA_HOME% \\\currentInfo
+	call :this\getJvmInfo "%JAVA_HOME%" \\\currentInfo
 	set \\\indexCount=0
 	for /f "usebackq delims==" %%a in (
 		`set \\\JVM\ 2^>nul`
@@ -101,13 +104,13 @@ goto :eof
 	goto :eof
 
 :this\getJvmInfo
-	if not exist %~1\bin\java.* exit /b 1
+	if not exist "%~1\bin\java.*" exit /b 1
 	set \\\version=
 	set \\\temp=
 	set \\\tmp=
 	set /a \\\bit=32,\\\canMake=0
 	for /f "usebackq delims=" %%a in (
-		`%~1\bin\java -version 2^>^&1`
+		`"%~1\bin\java" -version 2^>^&1`
 	) do for %%b in (%%a) do (
 		set \\\tmp=%%b
 		for %%c in (!\\\temp!) do if "!\\\tmp:%%c=!" neq "%%b" set \\\version=!\\\tmp:~0,-1!

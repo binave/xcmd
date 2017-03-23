@@ -168,7 +168,7 @@ lib_dhms() {
 }
 
 ### Create instatll media, by Install*.app #Usage: cim [device_path]
-lib_cim(){
+lib_cim() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     [ -d "$1" ] || exit 1; # target device not found
     local src;
@@ -182,7 +182,7 @@ lib_cim(){
 }
 
 ### Write img to disk #Usage: sdd [img_path] [disk_path] #       e.g. sdd /Volumes/Macintosh\\ HD/docker.img /dev/disk2 #       e.g. iof /Volumes/Macintosh\\ HD/docker.img.gz /Volumes/1
-lib_sdd (){
+lib_sdd() {
     [ "`uname`" == "Darwin" ] || exit 1; # Only support OS X (macOS)
     # caller 0;
     [ -f "$1" ] || exit 1; # img file not found
@@ -226,7 +226,7 @@ lib_sdd (){
 }
 
 ### Set directory owner #Usage: own [dir_path]
-lib_own(){
+lib_own() {
     [ -d "$1" ] || exit 1; # directory not found
     local USER arg;
     USER=${2:-bin}
@@ -238,16 +238,30 @@ lib_own(){
 }
 
 ### Copy rsa public key to remote #Usage: pubrsa [[user@]host] [[alias]]
-lib_pubrsa () {
+lib_pubrsa() {
     [ "$1" ] || exit 1; # first args is empty
     local rsa_pub;
-    rsa_pub=`cat ~/.ssh/id_rsa$2.pub 2>/dev/null` || ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa$2
+    rsa_pub=`cat ~/.ssh/id_rsa$2.pub 2>/dev/null` || {
+        ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa$2;
+        rsa_pub=`cat ~/.ssh/id_rsa$2.pub 2>/dev/null` || exit 1; # Unknown Error
+    };
     ssh $1 <<-SH
     mkdir ~/.ssh 2>/dev/null;
-    echo "$pub" >> ~/.ssh/authorized_keys;
+    echo "$rsa_pub" >> ~/.ssh/authorized_keys;
     chmod 600 ~/.ssh/authorized_keys;
     chmod 700 ~/.ssh
 SH
+
+    local host=${1#*@} user
+    [ "$host" == "$1" ] && user=${1%@*} || user=$USER
+
+    printf %s "
+Host    $host
+    HostName        $host
+    Port            22
+    User            $user
+    IdentityFile    ~/.ssh/id_rsa$2
+"
     return 0
 }
 
@@ -291,6 +305,15 @@ lib_unascii() {
     return 0
 }
 
+### Print random string match [A-Za-z0-9] #Usage: rand [[size]]
+lib_rand() {
+    # local rand=`dd if=/dev/random bs=1 count=${1:-32} 2>/dev/null | base64 | tr -d '\n'`; # tr -d '\n' support linux
+    local rand=`openssl rand -base64 ${1:-32}} | tr -d '\n'`;
+    rand=${rand//\//${RANDOM:0:1}};
+    rand=${rand//+/${RANDOM:0:1}};
+    printf "${rand:0:${1:-32}}\n"
+}
+
 ### Show IPv4
 lib_lip() {
     # netstat -rn | grep "default"
@@ -320,7 +343,19 @@ lib_sip() {
     # Clear arp cache
     sudo arp -ad >/dev/null 2>&1 || return 1;
 
-    local i j l=0 mac macs=() route_ip=`route -n get default | grep gateway | awk '{print $2}'`;
+    local i j l=0 r mac macs=() range route_ip;
+
+    # get [setting]
+    load_ini sip_setting;
+    route_ip=`_map -g route`;
+    route_ip=(${route_ip//,/ } `route -n get default | grep gateway | awk '{print $2}'`);
+    # trim
+    for i in ${!route_ip[@]}; do
+        _set -i "${route_ip[$i]%.*}" || unset route_ip[$i];
+    done
+    range=`_map -g range`;
+    [ "$range" ] || range="1-127";
+    _map -c;
 
     load_ini hosts;
 
@@ -358,28 +393,30 @@ lib_sip() {
     # init thread valve
     thread_valve -i 40;
 
-    # seq 1 254
-    for i in {1..254};
+    for r in ${route_ip[@]};
     do
-        i=${route_ip%.*}.$i;
+        for i in `seq ${range/-/ }`;
+        do
+            i=${r%.*}.$i;
 
-        # get thread
-        thread_valve -g;
+            # get thread
+            thread_valve -g;
 
-        # multi-thread
-        {
-            ping -c 1 -t 1 $i >/dev/null 2>&1;
-            j=`arp $i 2>/dev/null`;
-            for mac in ${macs[@]};
-            do
-                [[ $j == *${mac%%.*}* ]] && printf "%-${l}s$i\n" ${mac#*.}
-                # Like nbtstat
-                # [[ `smbutil status $i 2>/dev/null` == *$mac* ]] && printf $i
-            done
+            # multi-thread
+            {
+                ping -c 1 -t 1 $i >/dev/null 2>&1;
+                j=`arp $i 2>/dev/null`;
+                for mac in ${macs[@]};
+                do
+                    [[ $j == *${mac%%.*}* ]] && printf "%-${l}s$i\n" ${mac#*.}
+                    # Like nbtstat
+                    # [[ `smbutil status $i 2>/dev/null` == *$mac* ]] && printf $i
+                done
 
-            # return thread
-            thread_valve -r;
-        } &
+                # return thread
+                thread_valve -r;
+            } &
+        done;
     done;
 
     # destroy thread valve
@@ -395,28 +432,28 @@ thread_valve() {
         # use before loop, need count
         --init | -i)
             mkfifo /tmp/$$.fifo;
-            # &255
-            exec 255<> /tmp/$$.fifo;
+            # &3
+            exec 3<> /tmp/$$.fifo;
             rm /tmp/$$.fifo;
             local i;
             # init thread valve
             for i in `seq 1 $2`; do
                 printf "\n";
-            done >&255
+            done >&3
         ;;
         # use after loop
         --destroy | -d)
             wait;
-            exec 255>&-;
-            exec 255<&-
+            exec 3>&-;
+            exec 3<&-
         ;;
         # use after multi-thread
         --return | -r)
-            printf "\n" >&255
+            printf "\n" >&3
         ;;
         # use before multi-thread
         --get | -g)
-            read -u 255
+            read -u 3
         ;;
     esac
 }
@@ -455,7 +492,7 @@ thread_valve() {
 # }
 
 hosts() {
-    printf %s "
+    printf %s '
 ##
 # Host Database
 #
@@ -465,7 +502,7 @@ hosts() {
 127.0.0.1	localhost
 255.255.255.255	broadcasthost
 ::1             localhost
-"
+'
 }
 
 ### Update hosts by ini #    will read ini config from HOME or script path. #    ini file context like: # #[hosts] #abc.org=01-12-23-34-45-56 #lib-233=67-78-89-9a-ab-bc #www.a.com=192.168.1.1
@@ -723,6 +760,61 @@ code() {
     esac
 }
 
+# Usage: _map   [option] [arg...] [[instance num]]
+#       max instance num: 255, default: 0,
+#       if you will use _set function, num need less than 128
+#   --put, -p [key] [value] [[num]] put key value in map
+#   --get, -g [key] [[num]]         get value by key
+#   --remove, -r [key] [[num]]      remove value by key
+#   --keys, -ks [[num]]             set all keys in REPLY array
+#   --values, -vs [[num]]           set all values in REPLY array
+#   --arr, -a [[num]]               set all in REPLY array like: [key value]...
+#   --clear, -c [[num]]             clear map by instance num
+#   --size, -s [[num]]              get map size
+#   --clearall                      clear all map
+_map () {
+    # # varmap "$@"
+    offset_map "$@"
+    # split_map "$@"
+}
+
+# Usage: _set   [option] [arg...] [[instance_num]]
+#       max instance num: 127, default: 0. it will use map instance 128 ~ 255
+#   --add, -i   [arg] [[num]]       add if not have
+#   --contains, -t  [arg] [[num]]   test have
+#   --remove, -r    [arg] [[num]]   remove
+#   --arr, -a [[num]]               set all in REPLY array
+#   --clear, -c [[num]]             clear set by instance
+_set() {
+    [ "$1" ] || return 1;
+    local i;
+    case $1 in
+        --add | -i)
+            [ $# -ge 2 ] || return 2;
+            i=$(((${3:-0} & 0x7F) + 0x80));
+            _map --get "$2" $i >/dev/null && return 1
+            _map --put "$2" _ $i;
+            return 0
+        ;;
+        --contains | -t)
+            [ $# -ge 2 ] || return 2;
+            _map --get "$2" $(((${3:-0} & 0x7F) + 0x80)) >/dev/null && return 0;
+            return 1
+        ;;
+        --remove | -r)
+            [ $# -ge 2 ] || return 2;
+            _map $1 "$2" $(((${3:-0} & 0x7F) + 0x80)) >/dev/null || return 1
+            return 0
+        ;;
+        --arr | -a)
+            _map --keys $(((${2:-0} & 0x7F) + 0x80))
+        ;;
+        --clear | -c)
+            _map $1 $(((${2:-0} & 0x7F) + 0x80))
+        ;;
+    esac
+}
+
 BKDRHash (){
     local a i h=0 seed=131; # 31 131 1313 13131 131313
     for ((i=0; i<${#1}; i++))
@@ -882,6 +974,7 @@ offset_map() {
 
             case $1 in
                 --clear | -c)
+                    # unset: variable can without '$''
                     [ "$h" ] && unset MAP_ENTRY[0x7FFFFFFFFFFFFFFF-i] MAP_OFFSET[${h// /] MAP_OFFSET[}] MAP_ENTRY[${h// /\] MAP_ENTRY[}];
                     # }
                 ;;
@@ -929,6 +1022,9 @@ offset_map() {
         ;;
         --clearall)
             unset MAP_ENTRY MAP_OFFSET
+        ;;
+        *)
+            printf "\033[31m$1: invalid option\033[0m\n" >&2
         ;;
     esac
 }
@@ -1018,6 +1114,7 @@ split_map() {
 
             case $1 in
                 --clear | -c)
+                    # unset: variable can without '$''
                     unset MAP[0x7FFFFFFFFFFFFFFF-i] MAP[${h// /] MAP[}];
                     # }
                 ;;
@@ -1069,38 +1166,8 @@ split_map() {
         --clearall)
             unset MAP
         ;;
-    esac
-}
-
-# $*, "$*", $@ can not keep $#, only "$@" can save native structural
-_map () {
-    # # varmap "$@"
-    offset_map "$@"
-    # split_map "$@"
-}
-
-_set() {
-    [ "$1" ] || return 1;
-    local i;
-    case $1 in
-        --add | -i)
-            [ $# -ge 2 ] || return 2;
-            i=$(((${3:-0} & 0xF) + 0xF));
-            _map -g "$2" $i >/dev/null && return 1 || _map -p "$2" _ $i
-        ;;
-        --contains | -t)
-            [ $# -ge 2 ] || return 2;
-            _map -g "$2" $(((${3:-0} & 0xF) + 0xF)) >/dev/null && return 0 || return 1
-        ;;
-        --remove | -r)
-            [ $# -ge 2 ] || return 2;
-            _map -r "$2" $(((${3:-0} & 0xF) + 0xF)) >/dev/null || return 1
-        ;;
-        --arr | -a)
-            _map -ks $(((${2:-0} & 0xF) + 0xF))
-        ;;
-        --clear | -c)
-            _map -c $(((${2:-0} & 0xF) + 0xF))
+        *)
+            printf "\033[31m$1: invalid option\033[0m\n" >&2
         ;;
     esac
 }
@@ -1122,15 +1189,16 @@ load_ini() {
         elif [ $tag ]; then
             _map -p ${l%=*} ${l#*=} $2
         fi
-    done < <(cat ${0%/*}/*.ini ${0%/*}/.*.ini ~/*.ini ~/.*.ini 2>/dev/null | awk -F';' '{print $1}');
+    done < <(cat ${0%/*}/.*ini ~/.*ini 2>/dev/null | awk -F';' '{print $1}');
 
-    while read l tag;
-    do
-        lib_iipv4 $tag || {
-            imac $tag || continue
-        };
-        _map -p "$l" "$tag" $2;
-    done < <(set);
+    # # read environment variable
+    # while read l tag;
+    # do
+    #     lib_iipv4 $tag || {
+    #         imac $tag || continue
+    #     };
+    #     _map -p "$l" "$tag" $2;
+    # done < <(set);
 
    [ `_map -s $2` == 0 ] && return 1;
    return 0
@@ -1155,6 +1223,7 @@ ramfs() {
             hdiutil detach ${ramfs_dev}
         ;;
         *)
+            printf "\033[31m$1: invalid option\033[0m\n" >&2
         ;;
     esac
 }
@@ -1287,6 +1356,8 @@ trap 'func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
     func_annotation $1 || printf "\033[31mError: No function found \033[0m\n" >&2;
     exit $?
 };
+
+# $*, "$*", $@ can not keep $#, only "$@" can save native structural
 
 # main
 ${0##*/}_"$@"

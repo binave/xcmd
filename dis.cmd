@@ -474,7 +474,7 @@ REM Enable ServicesForNFS
 :: dism ::
 ::::::::::
 
-::: "Wim manager" "" "usage: %~n0 wim [option] [args ...]" "    --new,    -n [target_dir_path] [[image_name]]            Capture file/directory to wim" "    --apply,  -a [wim_path] [[output_path] [image_index]]    Apply WIM file" "    --mount,  -m [wim_path] [mount_path] [[image_index]]     Mount wim" "    --umount, -u [mount_path]                                Unmount wim" "    --commit, -c [mount_path]                                Unmount wim with commit" "    --export, -e [source_wim_path] [target_wim_path] [image_index] [[compress_level]]    Export wim image" "                                   compress level: 0 none, 1 fast, 2 recovery, 3 WIMBoot, 4 max"
+::: "Wim manager" "" "usage: %~n0 wim [option] [args ...]" "    --new,    -n [target_dir_path] [[image_name]]            Capture file/directory to wim" "    --apply,  -a [wim_path] [[output_path] [image_index]]    Apply WIM file" "    --mount,  -m [wim_path] [mount_path] [[image_index]]     Mount wim" "    --umount, -u [mount_path]                                Unmount wim" "    --commit, -c [mount_path]                                Unmount wim with commit" "    --export, -e [source_wim_path] [target_wim_path] [image_index] [[compress_level]]    Export wim image" "                                   compress level: 0 none, 1 fast, 2 recovery, 3 WIMBoot, 4 max" "    --umountall, -ua                                         Unmount all wim" "    --rmountall, -ra                                         Recovers mount all orphaned wim"
 :::: "option invalid" "lib.cmd not found" "dism version is too old" "target not found" "need input image name" "dism error" "wim file not found" "not wim file" "output path allready use" "output path not found" "Not a path" "Target wim index not select"
 :dis\wim
     call :this\iinpath lib.cmd || exit /b /b 2
@@ -566,11 +566,6 @@ REM for wim
     dism.exe /Unmount-Wim /MountDir:"%~f1" /discard
     exit /b 0
 
-::: "TODO Unmount all wim"
-:this\wim\--umountall
-:this\wim\-ua
-    exit /b 0
-
 :this\wim\--commit
 :this\wim\-c
     call lib.cmd idir %1 || exit /b 4
@@ -593,6 +588,30 @@ REM for wim
     if "%~4"=="4" set \\\compress=/Compress:max
     dism.exe /Export-Image /SourceImageFile:"%~f1" /SourceIndex:%3 /DestinationImageFile:"%~f2" /Bootable %\\\compress% /CheckIntegrity
     endlocal
+    exit /b 0
+
+::: "Unmount all wim"
+:this\wim\--umountall
+:this\wim\-ua
+    for /f "usebackq tokens=1-3*" %%a in (
+		`dism.exe /English /Get-MountedWimInfo`
+	) do if "%%~a%%~b"=="MountDir" if exist "%%~d" call :this\wim\--umount "%%~d"
+    dism.exe /Cleanup-Wim
+    exit /b 0
+
+::: "Recovers mount all orphaned wim"
+:this\wim\--rmountall
+:this\wim\-ra
+    setlocal enabledelayedexpansion
+    for /f "usebackq tokens=1-3*" %%a in (
+		`dism.exe /English /Get-MountedWimInfo`
+	) do (
+        if "%%~a"=="Mount" set \\\m=
+        if "%%~a%%~b"=="MountDir" if exist "%%~d" set "\\\m=%%~d"
+        if "%%~a%%~d"=="StatusRemount" if defined \\\m dism.exe /Remount-Wim /MountDir:"!\\\m!"
+    )
+    endlocal
+    echo.complate.
     exit /b 0
 
 REM ::: ""
@@ -879,7 +898,7 @@ REM for :dis\officekms
     call :this\iinpath lib.cmd || exit /b 2
     setlocal
     call lib.cmd gbs \\\bs
-    reg.exe add "HKCU\SOFTWARE\Microsoft\Command Processor" /v AutoRun /t REG_SZ /d "if not defined BS set BS=%\\\bs%&& for /f \"usebackq delims=\" %%a in (\"%%USERPROFILE%%\.batchrc\") do @call %%a>nul 2>&1" /f
+    reg.exe add "HKCU\SOFTWARE\Microsoft\Command Processor" /v AutoRun /t REG_SZ /d "if not defined BS set BS=%\\\bs%&& (for /f \"usebackq delims=\" %%a in (\"%%USERPROFILE%%\.batchrc\") do @call %%a)>nul 2>&1" /f
     if exist "%USERPROFILE%\.batchrc" endlocal & exit /b 0
 
     > "%USERPROFILE%\.batchrc" (

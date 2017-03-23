@@ -191,6 +191,46 @@ REM Test target in $path
     if "%~$path:1" neq "" exit /b 0
     exit /b 1
 
+::: "Backup git repositories"
+:::: "git command not found"
+:3rd\gitbak
+    call :this\iinpath git.exe || exit /b 1
+    setlocal enabledelayedexpansion
+
+    for /r /d %%a in (
+        hook?
+    ) do if exist "%%~dpaobjects" (
+        REM git repository
+        set "\\\src=%%~dpa"
+        set "\\\src=!\\\src:~0,-1!"
+
+        REM project name
+        set \\\name=!\\\src:\.git=!
+        set \\\name=!\\\name:.git=!
+        for %%b in ("!\\\name!") do set "\\\name=%%~nxb"
+
+        REM get latest update version
+        set \\\tamp=
+        for /f "usebackq delims=" %%b in (
+            `git.exe --git-dir^="!\\\src!" log --pretty^=format:"%%!at"`
+        ) do if not defined \\\tamp set \\\tamp=%%b
+
+        if defined \\\tamp (
+            set "\\\out=.\!\\\name!_!\\\tamp!.git"
+
+            if not exist "!\\\out!" (
+                echo create bundle: !\\\name!
+                REM git.exe --git-dir="!\\\src!" bundle create "!\\\out!" HEAD master
+                git.exe --git-dir="!\\\src!" bundle create "!\\\out!" --all && git.exe bundle verify "!\\\out!"
+                git.exe --git-dir="!\\\src!" gc
+                echo.
+            ) else echo exist: !\\\out!
+        ) else echo skip: !\\\src!
+    )
+    endlocal
+    exit /b 0
+
+
 ::: "Oracle service start\stop"
 :::: "Sid is empty, default is orcl"
 :3rd\orcl
@@ -262,6 +302,7 @@ REM For :3rd\orcl
     endlocal & exit /b %errorlevel%
 
 REM List all VM name, tag running VM
+REM todo MAC VBoxManage.exe showvminfo %\\\vms% --machinereadable | find "macaddress"
 :this\vbox\
     call :vbox\setVar vms \\\vms
     call :vbox\setVar runningvms \\\run
@@ -339,51 +380,92 @@ REM Reg VM names
 
 ::: "Convert alac,ape,m4a,tta,tak,wav to flac format" "need changes the current directory at target"
 :::: "ffmpeg command not found"
-:3rd\cflac
+:3rd\2flac
     call :this\iinpath ffmpeg.exe || exit /b 1
     pushd "%cd%"
     for /r . %%a in (
         *.alac *.ape *.m4a *.tta *.tak *.wav
     ) do cd /d "%%~dpa" && (
         echo cd /d %%~dpa
-        if not exist .\"%%~na.flac" ffmpeg.exe -i ".\%%~nxa" -acodec flac ".\%%~na.flac" 2>&1
+        if not exist .\"%%~na.flac" ffmpeg.exe -hide_banner -i ".\%%~nxa" -acodec flac ".\%%~na.flac" 2>&1
     )
     popd
     exit /b 0
 
-::: "Play all multi-media in directory" "" "usage: %~n0 ffplay [path] [[audio_specifier]]"
-:::: "ffplay command not found" "args is empty" "lib.cmd not found"
-:3rd\ffplay
+::: "Play all multi-media in directory" "" "usage: %~n0 play [options] [directory...]" "    --random, -r" "    --ast, -a " "    --skip, -j"
+:::: "play command not found" "args is empty" "lib.cmd not found"
+:3rd\play
     call :this\iinpath ffplay.exe || exit /b 1
-    if "%~1"=="" exit /b 2
     call :this\iinpath lib.cmd || exit /b 3
-    setlocal
+    if "%~1"=="" exit /b 2
+    setlocal enabledelayedexpansion
+    set \\\media=
+    set \\\random=
+    set \\\stream_specifier=
+    set \\\skip=
+:play\args
+    if /i "%~1"=="--random" set \\\random=RANDOM
+    if /i "%~1"=="-r" set \\\random=RANDOM
     REM -ast stream_specifier  select desired audio stream
-    call lib.cmd inum %~2 && set "\\\stream_specifier=-ast %~2"
-    call lib.cmd iDir %1 && for /r "%~1" %%a in (
-        *.alac *.ape *.avi *.divx *.flac *.flv *.m4a *.mkv *.mp? *.ogg *.rm *.rmvb *.tta *.tak *.vob *.wav *.wm?
-    ) do call :this\ffplay "%%a"
-    call lib.cmd iDir %1 || call :this\ffplay %1
+    if /i "%~1"=="--ast" call lib.cmd inum %~2 && set "\\\stream_specifier=-ast %~2"& shift /1
+    if /i "%~1"=="-a" call lib.cmd inum %~2 && set "\\\stream_specifier=-ast %~2"& shift /1
+    if /i "%~1"=="--skip" call lib.cmd inum %~2 && set "\\\skip=%~2"& shift /1
+    if /i "%~1"=="-j" call lib.cmd inum %~2 && set "\\\skip=%~2"& shift /1
+    call lib.cmd iDir %1 && set \\\media=%\\\media% "%~1"
+    shift /1
+    if "%~1" neq "" goto play\args
+
+    set \\\c=1000000000
+    set /a \\\skip+=\\\c
+    for %%a in (
+        %\\\media%
+    ) do (
+        pushd "%cd%"
+        cd /d "%%~a"
+        if defined \\\random (
+            for /r %%b in (
+                *.alac *.ape *.avi *.divx *.flac *.flv *.m4a *.mkv *.mp? *.ogg *.rm *.rmvb *.tta *.tak *.vob *.wav *.wm?
+            ) do (
+                set /a \\\c+=1
+                set "\\\track!random!=%%b"
+            )
+        ) else (
+            for /f "usebackq delims=" %%b in (
+                `dir /b /s /on *.alac *.ape *.avi *.divx *.flac *.flv *.m4a *.mkv *.mp? *.ogg *.rm *.rmvb *.tta *.tak *.vob *.wav *.wm?`
+            ) do (
+                set /a \\\c+=1
+                if !\\\c! geq %\\\skip% set "\\\track!\\\c!=%%b"
+            )
+        )
+        popd
+    )
+    set /a \\\c=%\\\c% %% 1000000000, \\\i=%\\\skip% %% 1000000000
+
+    for /f "usebackq tokens=2 delims==" %%a in (
+        `set \\\track 2^>nul`
+    ) do set /a \\\i+=1& call :this\ffplay "%%a"
+
     endlocal
     exit /b 0
 
 :this\ffplay
+    echo Progress #%\\\i% / %\\\c%, %\\\random%
     REM -sn ::disable subtitling
     REM -ac 2 ::ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) ::Convert the 5.1 track to stereo
     for %%a in (
         avi divx flv mkv mp4 mpg rm rmvb vob wmv
-    ) do if /i "%~x1"==".%%a" ffplay.exe %\\\stream_specifier% -ac 2 -sn -autoexit %1
+    ) do if /i "%~x1"==".%%a" ffplay.exe -hide_banner %\\\stream_specifier% -ac 2 -sn -autoexit %1 2>&1
     for %%a in (
         alac ape flac m4a mp3 ogg tta tak wav wma
-    ) do if /i "%~x1"==".%%a" start /b /wait /min ffplay.exe -autoexit %1
+    ) do if /i "%~x1"==".%%a" start /b /wait /min ffplay.exe -hide_banner -autoexit %1 2>&1
     exit /b 0
 
 REM :3rd\lcam
-REM     ffmpeg.exe -f dshow -list_devices true -i "" 2>&1 | find.exe "]"
+REM     ffmpeg.exe -hide_banner -f dshow -list_devices true -i "" 2>&1 | find.exe "]"
 REM     exit /b 0
 
 REM :3rd\scam
-REM     ffplay -f dshow -video_size $size -framerate 25 -pixel_format 0rgb -probesize 10M -i "0":"0" 2>&1
+REM     ffplay.exe -hide_banner -f dshow -video_size $size -framerate 25 -pixel_format 0rgb -probesize 10M -i "0":"0" 2>&1
 REM     exit /b 0
 
 ::: "Package vm to ova format" "" "usage: %~n0 ova [vm_name] [eula_file_path]"
@@ -434,8 +516,8 @@ REM     exit /b 0
 		call :this\tarDecompresses %1
 		goto :eof
 	)
-	set \\\suffix=%0
-	set \\\suffix=%\\\suffix:~5%
+	for %%a in (%0) do set \\\suffix=%%~nxa
+	set \\\suffix=%\\\suffix:~4%
 	call :this\tarCompresses %*
     endlocal
     exit /b 0
@@ -461,28 +543,28 @@ REM for :3rd\tar.*
 REM for :3rd\tar.*
 :this\tarDecompresses
 	for %%a in ("%~n1") do (
-		7za.exe x %1 -so | 7za.exe x -si -ttar -o"%%~na" -aoa
-		call :this\molting ".\%%~na" %2
+		7za.exe x %1 -so | 7za.exe x -si -ttar -o. -aoa
+		REM call :this\molting ".\%%~na" %2
 	)
 	goto :eof
 
-REM for :this\tarDecompresses
-:this\molting
-	if "%~1"=="" goto :eof
-	REM if "%~2"=="" goto :eof
-	for /f "usebackq delims=" %%a in (
-		`dir /a /b "%~1"`
-	) do if not defined \\\molting (
-		call lib.cmd iDir "%~1\%%a" || goto :eof
-		set "\\\molting=%%a"
-	) else set \\\molting= & goto :eof
-	call lib.cmd gNow \\\nowM && rename "%~1" !\\\nowM!
-	>nul move /y "%~dp1!\\\nowM!\!\\\molting!" "%~dp1" && rmdir /s /q "%~dp1!\\\nowM!"
-	set \\\nowM=
-	REM set "%~2=%~dp1!\\\molting!"
-	set \\\molting=
-	REM call %0 "!%~2!" %~2
-	goto :eof
+REM REM for :this\tarDecompresses
+REM :this\molting
+REM 	if "%~1"=="" goto :eof
+REM 	REM if "%~2"=="" goto :eof
+REM 	for /f "usebackq delims=" %%a in (
+REM 		`dir /a /b "%~1"`
+REM 	) do if not defined \\\molting (
+REM 		call lib.cmd iDir "%~1\%%a" || goto :eof
+REM 		set "\\\molting=%%a"
+REM 	) else set \\\molting= & goto :eof
+REM 	call lib.cmd gNow \\\nowM && rename "%~1" !\\\nowM!
+REM 	>nul move /y "%~dp1!\\\nowM!\!\\\molting!" "%~dp1" && rmdir /s /q "%~dp1!\\\nowM!"
+REM 	set \\\nowM=
+REM 	REM set "%~2=%~dp1!\\\molting!"
+REM 	set \\\molting=
+REM 	REM call %0 "!%~2!" %~2
+REM 	goto :eof
 
 REM for :3rd\tar.*
 :this\equalsDeputySuffix

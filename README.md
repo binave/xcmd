@@ -1,10 +1,10 @@
-# Abstract Script
+# External Command
 command-line wrapper for batch and shell
 
 ---------
 # Licensing
-abscript is licensed under the Apache License, Version 2.0. See
-[LICENSE](https://github.com/binave/abscript/blob/master/LICENSE) for the full
+extcmd is licensed under the Apache License, Version 2.0. See
+[LICENSE](https://github.com/binave/extcmd/blob/master/LICENSE) for the full
 license text.
 
 ---------
@@ -146,6 +146,9 @@ lib.cmd
         guuid           Get UUID
                         获得 UUID。
 
+        head            Print the first some lines of FILE to standard output.
+                        输出文件前几行。
+
         hosts           Update hosts by ini
                         通过 ini 配置文件，自动更新 hosts。
 
@@ -182,6 +185,9 @@ lib.cmd
         lip             Show Ipv4
                         显示本机 IP。
 
+        MD5             Print or check MD5 (128-bit) checksums.
+                        计算文件 MD5。
+
         own             Change file/directory owner Administrator
                         将文件或目录的所有者变为当前用户。
 
@@ -203,12 +209,21 @@ lib.cmd
         serrlv          Set errorlevel variable
                         设置 errorlevel 的值。
 
+        SHA1            Print or check SHA1 (160-bit) checksums.
+                        计算文件 SHA1。
+
+        SHA256          Print or check SHA256 (256-bit) checksums.
+                        计算文件 SHA256。
+
         sip             Search IPv4 by MAC or Host name
                         通过 MAC 地址或别名，搜索设备 IP。
                         （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
 
         skiprint        Print text skip some line
                         跳过指定行输出文件的文本内容到另一个空文本中。
+
+        tail            Print the last some lines of FILE to standard output.
+                        输出文件后几行。
 
         trimdir         Delete empty directory
                         删除所有空文件夹。

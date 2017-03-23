@@ -621,10 +621,12 @@ REM     exit /b 0
     set path=%path%
     exit /b 0
 
-REM ::: "Run As Administrator" "" "usage: %~n0 rAsAdmin [*]"
-REM :lib\rAsAdmin
-REM     runas.exe /user:administrator %*
-REM     exit /b 0
+::: "Run As Administrator" "" "usage: %~n0 a [*]"
+:lib\a
+    REM net.exe user administrator /active:yes
+    REM net.exe user administrator ???
+    runas.exe /savecred /user:administrator "%*"
+    exit /b 0
 
 ::: "Calculating time intervals, print use time" "" "must be run it before and after function"
 :lib\centiTime
@@ -708,6 +710,13 @@ REM     exit /b 0
     if "%~1"=="" exit /b 1
     setlocal enabledelayedexpansion
 
+    REM get config
+    call :this\load_ini sip_setting
+    call :map -g route \\\routes
+    call :map -g range \\\range
+    call :map -c
+    if not defined \\\range set \\\range=1-127
+
     call :this\load_ini hosts
 
     set \\\macs=
@@ -719,7 +728,7 @@ REM     exit /b 0
         REM Get value
         call :map -g %%a \\\arg
         if defined \\\arg (
-            set \\\mac=!\\\arg!
+            set \\\mac=!\\\arg: =!
         ) else set \\\mac=%%a
         REM Format
         set \\\mac=!\\\mac::=-!
@@ -733,14 +742,21 @@ REM     exit /b 0
     if not defined \\\macs exit /b 0
 
     REM Get router ip
-    call :this\grouteIp \\\route
+    call :this\grouteIp \\\grouteIp
+    for %%a in (
+        %\\\routes% %\\\grouteIp%
+    ) do if not defined \\\tmp\%%~na (
+        set \\\tmp\%%~na=-
+        set "\\\route=!\\\route! %%a"
+    )
+
     REM Clear arp cache
     arp.exe -d
     REM Search MAC
     for %%a in (
         %\\\route%
     ) do for /l %%b in (
-        1,1,254
+        %\\\range:-=,1,%
     ) do (
         call :this\thread_valve 50 cmd.exe ping
         start /b lib.cmd "" sip %%~na.%%b %\\\macs%
@@ -879,27 +895,23 @@ REM load .*.ini config
     if "%~1"=="" exit /b 1
     set \\\tag=
     for /f "usebackq delims=; 	" %%a in (
-        `type "%~dp0*.ini" "%userprofile%\*.ini" 2^>nul ^| findstr.exe /v "^;"`
+        `type "%~dp0.*ini" "%userprofile%\.*ini" 2^>nul ^| findstr.exe /v "^;"`
     ) do for /f "usebackq tokens=1,2 delims==" %%b in (
         '%%a'
     ) do if "%%c"=="" (
         if "%%b"=="[%~1]" (
             set \\\tag=true
         ) else set \\\tag=
-    ) else if defined \\\tag for %%d in (
-        %%b ::?"for trim"
-    ) do for %%e in (
-        %%c ::?"for trim"
-    ) do set \\\MAP%~2\%%d=%%e
+    ) else if defined \\\tag set \\\MAP%~2\%%b=%%c
     set \\\tag=
 
-    REM Load
-    for /f "usebackq tokens=1* delims==" %%a in (
-        `set`
-    ) do if "%%~da" neq "\\" (
-        call :this\imac %%~b && set \\\MAP%~2\%%a=%%~b
-        call :lib\iip %%~b && set \\\MAP%~2\%%a=%%~b
-    )
+    REM REM Load
+    REM for /f "usebackq tokens=1* delims==" %%a in (
+    REM     `set`
+    REM ) do if "%%~da" neq "\\" (
+    REM     call :this\imac %%~b && set \\\MAP%~2\%%a=%%~b
+    REM     call :lib\iip %%~b && set \\\MAP%~2\%%a=%%~b
+    REM )
 
     call :map -s %~2 && exit /b 1
     exit /b 0
@@ -980,6 +992,71 @@ REM for :lib\trimpath, delete path if not exist
     call :this\gpsv
     if errorlevel 3 PowerShell.exe -NoLogo -NonInteractive -ExecutionPolicy Unrestricted -Command "Invoke-WebRequest -uri %1 -OutFile %2 -UseBasicParsing" & exit /b 0
     call :lib\vbs get %1 %2
+    exit /b 0
+
+::: "Print the last some lines of FILE to standard output." "" "usage: %~n0 tail [-[count]]"
+:::: "powershell version is too old" "args error"
+:lib\tail
+    call :this\gpsv
+    if not errorlevel 3 exit /b 1
+    call :this\lines -Last %*|| exit /b 2
+    goto :eof
+
+::: "Print the first some lines of FILE to standard output." "" "usage: %~n0 head [-[count]]"
+:::: "powershell version is too old" "args error"
+:lib\head
+    call :this\gpsv
+    if not errorlevel 3 exit /b 1
+    call :this\lines -first %*|| exit /b 2
+    goto :eof
+
+REM for head tail
+:this\lines
+    setlocal
+    if "%~2"=="" exit /b 1
+    set \\\count=%~2
+    set \\\count=%\\\count:-=%
+    call :lib\inum %\\\count% || exit /b 1
+    if exist "%~3" (
+        PowerShell.exe -NoLogo -NonInteractive -ExecutionPolicy Unrestricted -Command "Get-Content \"%~3\" %~1 %\\\count%"
+    ) else PowerShell.exe -NoLogo -NonInteractive -ExecutionPolicy Unrestricted -Command "$Input | Select-Object %~1 %\\\count%"
+    endlocal
+    goto :eof
+
+
+::: "Print or check MD5 (128-bit) checksums." "" "usage: %~n0 md5 [file]"
+:::: "powershell error"
+:lib\MD5
+::: "Print or check SHA1 (160-bit) checksums." "" "usage: %~n0 sha1 [file]"
+:::: "powershell error"
+:lib\SHA1
+::: "Print or check SHA256 (256-bit) checksums." "" "usage: %~n0 sha256 [file]"
+:::: "powershell error"
+:lib\SHA256
+    for %%a in (%0) do call :this\hash %%~na %1|| exit /b 1
+    exit /b 0
+
+:this\hash
+    setlocal
+    call :this\gpsv
+    if not errorlevel 2 exit /b 1
+    set \\\arg=-
+    if exist "%~2" (
+        set "\\\arg=%~2"
+        for /f "usebackq" %%a in (
+            `PowerShell.exe -NoLogo -NonInteractive -ExecutionPolicy Unrestricted -Command "[System.BitConverter]::ToString((New-Object -TypeName System.Security.Cryptography.%~1CryptoServiceProvider).ComputeHash([System.IO.File]::Open(\"%2\",[System.IO.Filemode]::Open,[System.IO.FileAccess]::Read))).ToString() -replace \"-\""`
+        ) do set \\\hash=%%a
+    ) else for /f "usebackq" %%a in (
+        `PowerShell.exe -NoLogo -NonInteractive -ExecutionPolicy Unrestricted -Command "[System.BitConverter]::ToString((New-Object -TypeName System.Security.Cryptography.%~1CryptoServiceProvider).ComputeHash([Console]::OpenStandardInput())).ToString() -replace \"-\""`
+    ) do set \\\hash=%%a
+    if "%\\\hash%"=="" exit /b 2
+    set \\\hash=%\\\hash:A=a%
+    set \\\hash=%\\\hash:B=b%
+    set \\\hash=%\\\hash:C=c%
+    set \\\hash=%\\\hash:D=d%
+    set \\\hash=%\\\hash:E=e%
+    set \\\hash=%\\\hash:F=f%
+    endlocal & echo %\\\hash%   %\\\arg%
     exit /b 0
 
 ::: "Test PowerShell version" "" "Return errorlevel"
