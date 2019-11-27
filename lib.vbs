@@ -30,12 +30,21 @@
 '             setErr 1 ' return false status
 '         End Function
 
+''' Output version and exit
+Function lib_version()
+    printLine "0.18.3"
+ENd Function
 
 ''' Sleep some milliseconds 'Usage: lib sleep [ms]
 Function lib_sleep(ms)
     ' Test ms
     If Not IsNumeric(ms) Then setErr "Args not a number"
     WScript.Sleep ms
+End Function
+
+''' Run some command at background 'Usage: lib vbhide "[command]"
+Function lib_vbhide(command)
+    CreateObject("WScript.Shell").Run command, vbhide
 End Function
 
 ''' Download and save 'Usage: lib get [url] [output_path]
@@ -217,273 +226,62 @@ Function lib_gfsd(tag)
     Next
 End Function
 
+''' Create shortcut at desktop ''Usage: lib lnkd [source] [target] ''       [target]: Desktop AllUsersDesktop C:\
+Function lib_lnkd(sourceFilePath, targetFolder)
+    Set WshShell = WScript.CreateObject("WScript.Shell")
+    Set Fso = CreateObject("Scripting.FileSystemObject")
+
+    targetDir = WshShell.SpecialFolders(targetFolder)
+    If targetDir = "" Then
+        targetDir = targetFolder
+    End If
+
+    Set lnk = WshShell.CreateShortcut(targetDir & "\" & Fso.GetBaseName(sourceFilePath) & ".lnk")
+    lnk.TargetPath = sourceFilePath
+    lnk.Arguments = ""
+    lnk.WorkingDirectory = Fso.GetFile(sourceFilePath).ParentFolder.Path
+    lnk.WindowStyle = 1 ' Nomal Windows
+    lnk.Hotkey = ""
+    lnk.IconLocation = sourceFilePath & ", 0"
+    lnk.Description = ""
+    lnk.Save
+End Function
+
+
 ''''''''''''''''
 '   Template   '
 ''''''''''''''''
 
-Function lib_unattend(tag, ix86)
-    Dim xml, bit, n
-    n = vbNewLine
-    bit = "amd64"
-    If ix86 Then bit = "x86"
+''' Tag date time each line 'Usage: [command] | log [strftime format]
+Function lib_log(format)
+    format = Replace(format, "$F", "yyyy-MM-dd")
+    format = Replace(format, "$T", "hh:mm:ss")
+    format = Replace(format, "$Y", "yyyy")
+    format = Replace(format, "$y", "yy")
+    format = Replace(format, "$m", "MM")
+    format = Replace(format, "$d", "dd")
+    format = Replace(format, "$H", "hh")
+    format = Replace(format, "$M", "mm")
+    format = Replace(format, "$S", "ss")
+    format = "{0:" & format & "}"
 
-    xml = "<?xml version=""1.0"" encoding=""utf-8""?>" _
-        & n & "<unattend xmlns=""urn:schemas-microsoft-com:unattend"" xmlns:wcm=""http://schemas.microsoft.com/WMIConfig/2002/State"">"
-
-    Select Case tag
-        Case 1
-            Dim lang
-            lang = "zh-CN"
-            ' Administrator zh-CN amd64
-            xml = xml _
-            & n & "    <settings pass=""oobeSystem"">" _
-            & n & "        <component name=""Microsoft-Windows-International-Core"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"">" _
-            & n & "            <InputLocale>" & lang & "</InputLocale>" _
-            & n & "            <SystemLocale>" & lang & "</SystemLocale>" _
-            & n & "            <UILanguage>" & lang & "</UILanguage>" _
-            & n & "            <UILanguageFallback>" & lang & "</UILanguageFallback>" _
-            & n & "            <UserLocale>" & lang & "</UserLocale>" _
-            & n & "        </component>" _
-            & n & "        <component name=""Microsoft-Windows-Shell-Setup"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"">" _
-            & n & "            <AutoLogon>" _
-            & n & "                <Enabled>true</Enabled>" _
-            & n & "                <LogonCount>1</LogonCount>" _
-            & n & "                <Username>Administrator</Username>" _
-            & n & "            </AutoLogon>" _
-            & n & "            <OOBE>" _
-            & n & "                <SkipMachineOOBE>true</SkipMachineOOBE>" _
-            & n & "            </OOBE>" _
-            & n & "            <TimeZone>China Standard Time</TimeZone>" _
-            & n & "        </component>" _
-            & n & "    </settings>"
-
-        Case 2
-            ' User amd64
-            Dim user
-            user = "User"
-            xml = xml _
-            & n & "    <settings pass=""oobeSystem"">" _
-            & n & "        <component name=""Microsoft-Windows-Shell-Setup"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"">" _
-            & n & "            <AutoLogon>" _
-            & n & "                <Enabled>true</Enabled>" _
-            & n & "                <LogonCount>1</LogonCount>" _
-            & n & "                <Username>" & user & "</Username>" _
-            & n & "            </AutoLogon>" _
-            & n & "            <OOBE>" _
-            & n & "                <SkipMachineOOBE>true</SkipMachineOOBE>" _
-            & n & "            </OOBE>" _
-            & n & "            <UserAccounts>" _
-            & n & "                <LocalAccounts>" _
-            & n & "                    <LocalAccount wcm:action=""add"">" _
-            & n & "                        <Password>" _
-            & n & "                            <Value></Value>" _
-            & n & "                            <PlainText>true</PlainText>" _
-            & n & "                        </Password>" _
-            & n & "                        <Group>administrators;" & user & "</Group>" _
-            & n & "                        <Name>" & user & "</Name>" _
-            & n & "                    </LocalAccount>" _
-            & n & "                </LocalAccounts>" _
-            & n & "            </UserAccounts>" _
-            & n & "        </component>" _
-            & n & "    </settings>"
-
-        Case 3
-            ' Audit amd64
-            xml = xml _
-            & n & "    <settings pass=""oobeSystem"">" _
-            & n & "        <component name=""Microsoft-Windows-Deployment"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"" xmlns:wcm=""http://schemas.microsoft.com/WMIConfig/2002/State"" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"">" _
-            & n & "            <Reseal>" _
-            & n & "                <Mode>Audit</Mode>" _
-            & n & "            </Reseal>" _
-            & n & "        </component>" _
-            & n & "    </settings>"
-
-        Case 4
-            ' Administrator amd64
-            xml = xml _
-            & n & "    <settings pass=""oobeSystem"">" _
-            & n & "        <component name=""Microsoft-Windows-Shell-Setup"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"">" _
-            & n & "            <AutoLogon>" _
-            & n & "                <Enabled>true</Enabled>" _
-            & n & "                <LogonCount>1</LogonCount>" _
-            & n & "                <Username>Administrator</Username>" _
-            & n & "            </AutoLogon>" _
-            & n & "            <OOBE>" _
-            & n & "                <SkipMachineOOBE>true</SkipMachineOOBE>" _
-            & n & "            </OOBE>" _
-            & n & "        </component>" _
-            & n & "    </settings>"
-
-        Case 5
-            ' Nano server Administrator amd64
-            xml = xml _
-            & n & "    <settings pass=""offlineServicing"">" _
-            & n & "        <component name=""Microsoft-Windows-Shell-Setup"" processorArchitecture=""" & bit & """ publicKeyToken=""31bf3856ad364e35"" language=""neutral"" versionScope=""nonSxS"">" _
-            & n & "            <OfflineUserAccounts>" _
-            & n & "                <OfflineAdministratorPassword>" _
-            & n & "                    <Value>" & AdministratorPassword & "</Value>" _
-            & n & "                    <PlainText>false</PlainText>" _
-            & n & "                </OfflineAdministratorPassword>" _
-            & n & "            </OfflineUserAccounts>" _
-            & n & "            <ComputerName>" & ComputerName & "</ComputerName>" _
-            & n & "        </component>" _
-            & n & "    </settings>"
-
-        Case Else
-            setErr "Unknown tag"
-
-    End Select
-
-    printLine xml & n & "</unattend>"
-
+    Set Sb = CreateObject("System.Text.StringBuilder")
+    Set StdIn = WScript.StdIn
+    Set StdOut = WScript.StdOut
+    Do While Not StdIn.AtEndOfStream
+        Sb.AppendFormat_4 format, Array(now())
+        StdOut.WriteLine Sb.ToString() & StdIn.ReadLine
+        Sb.Length = 0
+    Loop
 End Function
 
-
-Function lib_print(tag, ext)
-    Dim strng, n
-    n = vbNewLine
-
-    Select Case tag
-        Case 1
-            ' For mbsacli
-            strng = _
-                  "<xsl:transform version=""1.0"" xmlns:xsl=""http://www.w3.org/1999/XSL/Transform"">" _
-            & n & "    <xsl:output method=""text""/>" _
-            & n & "    <xsl:template match=""/"">" _
-            & n & "        <xsl:for-each select=""//References"">" _
-            & n & "            <xsl:sort select=""DownloadURL""/>"
-
-            If Len(ext) Then
-                strng = strng _
-                & n & "            <xsl:if test=""not(contains(DownloadURL, '" & ext & "'))"">" _
-                & n & "                <xsl:value-of select=""DownloadURL""/><xsl:text>&#10;</xsl:text>" _
-                & n & "            </xsl:if>"
-            End If
-
-            strng = strng _
-            & n & "        </xsl:for-each>" _
-            & n & "    </xsl:template>" _
-            & n & "</xsl:transform>"
-
-        Case 2
-            ' hisecws.inf for windows server
-            strng = _
-                  "[Unicode]" _
-            & n & "Unicode=yes" _
-            & n & "[System Access]" _
-            & n & "MaximumPasswordAge = -1" _
-            & n & "PasswordComplexity = 0" _
-            & n & "[Registry Values]" _
-            & n & "MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\DisableCAD=4,1" _
-            & n & "MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoDriveTypeAutoRun=4,255" _
-            & n & "MACHINE\Software\Policies\Microsoft\Windows NT\Reliability\**del.ShutdownReasonUI=1,""""" _
-            & n & "MACHINE\Software\Policies\Microsoft\Windows NT\Reliability\ShutdownReasonOn=4,0" _
-            & n & "User\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoThumbnailCache=4,1" _
-            & n & "User\Software\Policies\Microsoft\Windows\Explorer\DisableThumbsDBOnNetworkFolders=4,1" _
-            & n & "[Version]" _
-            & n & "signature=""$CHICAGO$""" _
-            & n & "Revision=1"
-
-        Case 3
-
-            ' Can not use ""do @start cmd.exe /c"", exec only first line of %USERPROFILE%\.onstart file"
-            ' \Windows\System32\config\systemprofile"
-            strng = _
-                  "<?xml version=""1.0"" encoding=""UTF-16""?>" _
-            & n & "<Task version=""1.3"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">" _
-            & n & "    <Triggers>" _
-            & n & "        <BootTrigger>" _
-            & n & "            <Enabled>true</Enabled>" _
-            & n & "        </BootTrigger>" _
-            & n & "    </Triggers>" _
-            & n & "    <Principals>" _
-            & n & "        <Principal id=""Author"">" _
-            & n & "            <UserId>S-1-5-18</UserId>" _
-            & n & "            <RunLevel>HighestAvailable</RunLevel>" _
-            & n & "        </Principal>" _
-            & n & "    </Principals>" _
-            & n & "    <Settings>" _
-            & n & "        <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>" _
-            & n & "        <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>" _
-            & n & "        <Priority>5</Priority>" _
-            & n & "    </Settings>" _
-            & n & "    <Actions Context=""Author"">" _
-            & n & "        <Exec>" _
-            & n & "            <Command>cmd.exe</Command>" _
-            & n & "            <Arguments>/c for /f ""usebackq delims="" %a in (""%USERPROFILE%\.onstart"") do @cmd.exe /c %a &gt;&gt;\Windows\Logs\onstart.log 2&gt;&amp;1</Arguments>" _
-            & n & "            <WorkingDirectory>%USERPROFILE%</WorkingDirectory>" _
-            & n & "        </Exec>" _
-            & n & "    </Actions>" _
-            & n & "</Task>"
-
-        Case 4
-            Dim lic
-            lic = ""
-            ' OEM license
-            strng = _
-                  "<?xml version=""1.0"" encoding=""utf-8""?>" _
-            & n & "<r:license xmlns:r=""urn:mpeg:mpeg21:2003:01-REL-R-NS""" _
-            & n & "           licenseId=""{" & lic & "}""" _
-            & n & "           xmlns:sx=""urn:mpeg:mpeg21:2003:01-REL-SX-NS"" xmlns:mx=""urn:mpeg:mpeg21:2003:01-REL-MX-NS""" _
-            & n & "           xmlns:sl=""http://www.microsoft.com/DRM/XrML2/SL/v2"" xmlns:tm=""http://www.microsoft.com/DRM/XrML2/TM/v2"">" _
-            & n & "    <r:title>OEM Certificate</r:title>" _
-            & n & "    <r:grant>" _
-            & n & "        <sl:binding>" _
-            & n & "            <sl:data Algorithm=""msft:rm/algorithm/bios/4.0"">kgAAAAAAAgB" & lic & "BAAEA" & lic & "=</sl:data>" _
-            & n & "        </sl:binding>" _
-            & n & "        <r:possessProperty/>" _
-            & n & "        <sx:propertyUri definition=""trustedOem""/>" _
-            & n & "    </r:grant>" _
-            & n & "    <r:issuer>" _
-            & n & "        <Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">" _
-            & n & "            <SignedInfo>" _
-            & n & "                <CanonicalizationMethod Algorithm=""http://www.microsoft.com/xrml/lwc14n""/>" _
-            & n & "                <SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#rsa-sha1""/>" _
-            & n & "                <Reference>" _
-            & n & "                    <Transforms>" _
-            & n & "                        <Transform Algorithm=""urn:mpeg:mpeg21:2003:01-REL-R-NS:licenseTransform""/>" _
-            & n & "                        <Transform Algorithm=""http://www.microsoft.com/xrml/lwc14n""/>" _
-            & n & "                    </Transforms>" _
-            & n & "                    <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1""/>" _
-            & n & "                    <DigestValue>" & lic & "=</DigestValue>" _
-            & n & "                </Reference>" _
-            & n & "            </SignedInfo>" _
-            & n & "            <SignatureValue>" & lic & "==</SignatureValue>" _
-            & n & "            <KeyInfo>" _
-            & n & "                <KeyValue>" _
-            & n & "                    <RSAKeyValue>" _
-            & n & "                        <Modulus>" _
-            & n & "                            sotZn+w9juKPf7bMO9rNFriB+10v/t9bo/XWG+rzoDbw/uF4INZ5rGRIitiITY/bI4rANkv4Z5hG/8VxGMbqvqcaXJqnRFda7XAjgm1z9wkgX1R/d2tXLUUUQP0J1XuSbgzR89T/lpnc5q2Cdvy7Gv2pZvAzSeLOponXc8J3zOFr0IUXBGprXKnemVk1iJBFnyQGlWG3UoSpdlF0ichBQwPx/PgoTbcZsA7Gg62BGwPx/uDA3ZgwowrPlRwfLVAO6qE9xPJqRZdRFfPHbdQjp1YAq27wc6cTz5sPSTB1pJ4L9MD+NpvHj2OMZV5+LJ+bxZbTqhPcrzCp7ckkyD7Hzw==" _
-            & n & "                        </Modulus>" _
-            & n & "                        <Exponent>AQAB</Exponent>" _
-            & n & "                    </RSAKeyValue>" _
-            & n & "                </KeyValue>" _
-            & n & "            </KeyInfo>" _
-            & n & "        </Signature>" _
-            & n & "        <r:details>" _
-            & n & "            <r:timeOfIssue>200" & lic & "Z</r:timeOfIssue>" _
-            & n & "        </r:details>" _
-            & n & "    </r:issuer>" _
-            & n & "    <r:otherInfo xmlns:r=""urn:mpeg:mpeg21:2003:01-REL-R-NS"">" _
-            & n & "        <tm:infoTables xmlns:tm=""http://www.microsoft.com/DRM/XrML2/TM/v2"">" _
-            & n & "            <tm:infoList tag=""#global"">" _
-            & n & "                <tm:infoStr name=""applicationId"">{55c92734-d682-4d71-983e-d6ec3f16059f}</tm:infoStr>" _
-            & n & "                <tm:infoStr name=""licenseCategory"">msft:sl/PPD</tm:infoStr>" _
-            & n & "                <tm:infoStr name=""licenseType"">msft:sl/OEMCERT</tm:infoStr>" _
-            & n & "                <tm:infoStr name=""licenseVersion"">2.0</tm:infoStr>" _
-            & n & "                <tm:infoStr name=""licensorUrl"">http://licensing.microsoft.com</tm:infoStr>" _
-            & n & "            </tm:infoList>" _
-            & n & "        </tm:infoTables>" _
-            & n & "    </r:otherInfo>" _
-            & n & "</r:license>"
-
-        Case Else
-            setErr "Unknown tag"
-    End Select
-
-    printLine strng
-End Function
-
+' Function lib_log(separator)
+'     Set StdIn = WScript.StdIn
+'     Do While Not StdIn.AtEndOfStream
+'         line = StdIn.ReadLine
+'         printLine Replace(FormatDateTime(Now()) , "/", "-") & separator & line
+'     Loop
+' End Function
 
 ''''''''''''''''''''''''
 '   private function   '
@@ -771,10 +569,10 @@ Function gfuncAnno(method)
     text.Close
 End Function
 
-' Replace $@ to StdIn.ReadAll
+' Replace - to StdIn.ReadAll
 Function rArg(i)
     rArg = args(i)
-    If "$@" = rArg Then
+    If "-" = rArg Then
         rArg = "WScript.StdIn.ReadAll"
     Else
         rArg = "args(" & i & ")"

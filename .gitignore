@@ -15,7 +15,7 @@
 !.gitignore
 !README.md
 !LICENSE
-!lib
+!?lib
 !3rd
 
 # Ignore some directory

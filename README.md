@@ -1,5 +1,7 @@
 # External Command
-command-line wrapper for batch and shell
+command-line wrapper for batch and shell.
+
+一些常用的 batch 和 shell 方法合集。
 
 ---------
 # Licensing
@@ -8,458 +10,361 @@ extcmd is licensed under the Apache License, Version 2.0. See
 license text.
 
 ---------
-# New!
-clipTransfer.vbs
-
-        Copy file or folder between two Windows OS by clipboard
-        通过剪贴板，在两个 windows 之间复制小文件。将目标文件或文件夹拖动到脚本上，提示完成后，在远程桌面上双击远端的脚本即可。
 
 
-lib gpkg
+> 将脚本文件放入环境变量后，通过 `-h` 或者 `--help` 参数获得使用帮助。
+> <br/>`shell` 脚本需要注意赋予可执行权限，注意行尾序列使用 `LF`，否则脚本会无法执行。
+> <br/>`windows` 脚本支持从 `UNC` 路径启动，方便作为服务来使用，注意行尾序列使用 `CRLF`，否则脚本会无法执行，同时避免在脚本中使用非 `ANSI` 字符。
 
-        Get apk file from AppStore
-        截获 AppStore 的原版安装包。完成后会放到 Download 文件夹中。
-        (详细信息看 lib shell script 描述)
+---------
+### Q: 如何在不支持 `TPM` 的计算机上，快速使用 `windows` 系统的 `BitLocker` 加密所有磁盘。
+A:
 
-lib sip
+1. 准备一个 `FAT32` 格式的 `USB` 存储设备，连接到计算机，用于存放开机密钥。
+2. 下载 `lib.cmd` 到本地计算机，执行
 
-        Search IPv4 by MAC or Host name
-        通过 MAC 地址或别名搜索 IP 。（仅搜索本网段最后 255 个）
-        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
+    ```bat
+    lib vol --encrypts-all
+    ```
 
-lib hosts
+    2.1. 或者从 `smb` 服务器（如 `192.168.1.1`）的 `UNC` 路径执行
 
-        (win mac)
-        Update hosts by ini
-        通过 ini 配置文件，自动更新 hosts。
+    ```bat
+    \\192.168.1.1\extcmd\lib vol --encrypts-all
+    ```
 
-lib _map _set
+3. 更详细的操作方法（包括禁止非加密磁盘写入，隐藏加密特征，指定 `USB` 存储设备盘符等），可以使用
 
-        map for shell
-        基于 hash 算法实现的 map 。
-        与基于 map 实现的 set。
-        用于 shell 脚本内部调用，可以简化逻辑设计。
+    ```bat
+    lib vol --help
+    ```
 
---------
-Framework:
-框架：
+    进行查询。
 
-    If the function names conform to the specifications:
-        External call function. (cmd will support short name completion)
-        Error handling.
-        Display help information.
-        Print the functions list.
+---------
 
-    对符合规范的函数提供：（包括 sh、cmd、vbs）
-        外部调用 (cmd 格式的脚本支持通过短名称访问，类似自动补齐)。
-        错误处理。
-        输出帮助信息。
-        输出函数列表。
-        (lib 3rd 名称的脚本均支持以上特性。)
+### Q: 如何在 `macOS` 系统上截获 `AppStore` 原版 `pkg` 安装包。
+A:
 
-    e.g.
-        ::: "[brief_introduction]" "" "[description_1]" "[description_2]" ...
-        :::: "[error_description_1]" "[error_description_2]" ...
-        :[script_name_without_suffix]\[function_name]
-            ...
-            [function_body]
-            ...
-            REM exit and display [error_description_1]
+1. 下载 `lib` 到本地计算机执行
+
+    ```sh
+    lib pkg -g 5
+    ```
+
+2. 打开 `AppStore` 下载（而不是更新）任意若干个应用。
+3. 在 `Download` 文件夹中等待应用 `pkg` 包的出现。
+
+---------
+
+### Q: 如何批量搜索`同一网络`中的 `IP` 不固定的计算机，并用固定的名称访问。而不是登录每个电脑去看 `IP` 地址。
+A:
+
+1. 收集需要搜寻电脑网卡的 `MAC` 地址。
+2. 在用户目录 `%USERPROFILE%` 或 `$HOME` 下建立 `.host.ini` 空文件，并按照下列方式进行编辑
+
+    ```ini
+    [hosts]
+    ; 单个 mac 地址，匹配不到会忽略。
+    gl.inet=00:11:00:00:00:00
+
+    ; 从左开始匹配，都匹配不到会设置为最后的 |127.0.0.1
+    syno-15=00-11-00-00-11-00|11:00:00:00:00:11|00-11-00-00-00-11|127.0.0.1 ;nat hosts
+
+    ; 直接设置为固定的 IPv4
+    binave.com=127.0.0.1
+
+    [sip_setting]
+    ; 搜寻的 IPv4 范围
+    range=1-120
+    ```
+
+3. 在 `windows` 系统下下载 `lib.cmd` 或在 `macOS` 系统下下载 `lib` 执行
+
+    ```
+    lib hosts
+    ```
+
+    等待打印搜寻结果，结果会写入 `hosts` 文件中，所以需要管理员权限执行命令。
+
+---------
+
+### Q: 如何搭建一个最新版 `Microsoft Office` 可定制安装服务。
+A:
+
+1. 搭建一个 `smb` 服务（比如 `192.168.1.1`），并建立目录 `extcmd\`
+2. 使用
+
+    ```bat
+    lib odt -d \\192.168.1.1\extcmd
+    ```
+
+    下载最新的 `Microsoft Office` 安装文件。
+3. 下载 `lib.cmd` 放入 `\\192.168.1.1\extcmd`
+4. 服务搭建完成，在目标计算机上执行
+
+    ```bat
+    \\192.168.1.1\extcmd\lib odt -i word excel powerpoint
+    ```
+    安装 `word` `excel` `powerpoint`，其余 `office` 组件将被忽略。
+
+---------
+### Q: 我有 `kms` 服务部署在 `192.168.1.1` 上，如何快速激活 `windows` 和 `office`。
+A:
+
+1. 下载 `lib.cmd` 并执行
+
+    ```bat
+    lib kms -s 192.168.1.1
+    ```
+
+    激活  `windows`。
+    <br/>执行
+
+    ```bat
+    lib kms -o 192.168.1.1
+    ```
+
+    激活 `office`
+
+---------
+
+### Q: 如何在旧版本的 `windows` 之间，通过远程桌面的剪贴板，传输小文件或文件夹。
+A:
+
+1. 在本地和远端下载 `clipTransfer.vbs`，或将源码复制到任意 `vbs` 中。
+2. 在任意一端，把文件或文件夹拖动到 `vbs` 脚本上。
+3. 等待提示完成。
+4. 在另一端双击 `vbs` 脚本即可。
+5. 视网好坏将等待不同的时间。
+
+---------
+### Q: 如何将多个 `batch` （批处理）函数，或者 `shell` 函数放入一个脚本中，通过方法名快速调用，并支持错误输出。
+A:
+
+1. mac 和 linux 下新建 sh 文件，并写入以下内容（注意赋予可执行权限）。
+
+    ```sh
+    #!/bin/bash
+
+    #################################################
+    #               Custom Functions                #
+    # # # # # # # # # # # # # # # # # # # # # # #
+
+
+    ### somefunc ##Usage: somefunc info # need modify
+    _pre_somefunc () {
+        : # function body
+        exit 1 # error info, need modify
+    }
+
+    # # # # # # # # # # # # # # # # # # # # # # #
+    #               Custom Functions                #
+    #################################################
+
+    # Print Error info
+    _func_err () {
+        [[ "$4$6" == exit_${0##*/}* ]] && {
+            local err=`sed -n $2p "$0"` # local err=`awk 'NR=='$2'{print}' "$0"`;
+            printf "\033[31mError:${err##*#} \033[33m($0:$2)\033[0m\n" >&2; # Print line text after '#'
+            exit $(($5 % 256))
+        };
+
+        [ "$4" == "return" ] && exit $(($5 % 256)); # WARRAN: 0 <= $? <= 255, return 256: $? = 0
+        [ $1 == 127 ] && { # Get script line
+            printf "\033[31mError: No function found \033[0m\n" >&2; # No function found
+            exit 1
+        };
+        exit 0
+    }
+
+    _func_annotation () { # Show function info
+        local i j k OLDIFS IFS=$IFS\({;
+        OLDIFS=$IFS; # Cache IFS
+        [ "$1" ] && { # show select
+            while read i j; do
+                [ "$i" == "###" ] && { # Make array splite with
+                    IFS=#;
+                    k=($j);
+                    IFS=$OLDIFS
+                };
+                [ "$k" -a "$i" == "_${0##*/}_$1" ] && { # At target func name
+                    for i in ${!k[@]}; do
+                        printf "${k[$i]}\n"; # Print all annotation
+                    done;
+                    return 0
+                };
+                [[ "$i" == _${0##*/}* ]] && [ "$j" == ")" ] && unset k; # Reset var
+            done < "$0"; # Scan this script
+            return 1
+        } || {
+            while read i j; do # show all
+                [ "$i" == "###" ] && k=${j%%#*}; # Cache intro
+                [ "${i%_*}" == "_${0##*/}" -a "$j" == ")" ] && { # At func name
+                    printf "%-15s$k\n" ${i##*_}; # Left aligned at 15 char
+                    unset k # Clear var
+                };
+            done < "$0"; # Scan this script
+        }
+    }
+    # Cache exit
+    trap '_func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
+
+    [[ ! "$1" || "$1" == "-h" || "$1" == "--help" ]] && { # Test if help
+        _func_annotation | sort;
+        exit 0
+    } || [[ "$2" == "-h" || "$2" == "--help" ]] && {
+
+        _func_annotation $1 || printf "\033[31mError: No function found \033[0m\n" >&2; # Test if help
+        exit $?
+    };
+
+    _pre_"$@" # main $*, "$*", $@ can not keep $#, only "$@" can save native structural
+
+    ```
+
+2. windows 下新建 cmd 文件，写入以下内容
+
+    ```bat
+    @echo off
+
+    REM init errorlevel
+    set errorlevel=
+
+    REM Init PATH
+    for %%a in (%~nx0) do if "%%~$path:a"=="" set path=%path%;%~dp0
+
+    if "%~2"=="-h" call :this\annotation :pre\%~1 & exit /b 0
+    if "%~2"=="--help" call :this\annotation :pre\%~1 & exit /b 0
+
+    2>nul call :pre\%*
+
+    REM Test type function
+    if errorlevel 30 exit /b 1
+    if errorlevel 1 call :this\annotation :pre\%* & goto :eof
+    exit /b 0
+
+    :::::::::::::::::::::::::::::::::::::::::::::::
+    ::             Custom Functions              ::
+    :: :: :: :: :: :: :: :: :: :: :: :: :: ::
+
+    ::: "Update hosts by ini"
+    :::: "no ini file found"
+    :pre\somefunc
+        REM function body
+        exit /b 1
+        goto :eof
+
+    :: :: :: :: :: :: :: :: :: :: :: :: :: ::
+    ::             Custom Functions              ::
+    :::::::::::::::::::::::::::::::::::::::::::::::
+
+    REM Show INFO or ERROR
+    :this\annotation
+        setlocal enabledelayedexpansion & call :this\var\--set-errorlevel %errorlevel%
+        for /f "usebackq skip=73 tokens=1,2* delims=\ " %%a in (
+            "%~f0"
+        ) do (
+            REM Set annotation, errorlevel will reset after some times
+            if %errorlevel% geq 1 (
+                if /i "%%~a"=="::::" set _tmp=%errorlevel% %%b %%c
+            ) else if /i "%%~a"==":::" set _tmp=%%b %%c
+
+            if /i "%%~a"==":pre" (
+                REM Display func info or error
+                if /i "%%~a\%%~b"=="%~1" (
+                    if %errorlevel% geq 1 (
+                        REM Inherit errorlevel
+                        call :this\var\--set-errorlevel %errorlevel%
+                        call %0\error %%~a\%%~b !_tmp!
+                    ) else call %0\more !_tmp!
+                    goto :eof
+                )
+                REM init func var, for display all func, or show sort func name
+                set _args\%%~b=!_tmp! ""
+                REM Clean var
+                set _tmp=
+            )
+        )
+
+        REM Foreach func list
+        call :pre\cols _col
+        set /a _i=0, _col/=16
+        for /f usebackq^ tokens^=1^,2^ delims^=^=^" %%a in (
+            `2^>nul set _args\%~n1`
+        ) do if "%~1" neq "" (
+            REM " Sort func name expansion
+            set /a _i+=1
+            set _target=%%~nxa %2 %3 %4 %5 %6 %7 %8 %9
+            if !_i!==1 set _tmp=%%~nxa
+            if !_i!==2 call :this\txt\--all-col-left !_tmp! %_col%
+            if !_i! geq 2 call :this\txt\--all-col-left %%~nxa %_col%
+        ) else call :this\str\--2col-left %%~nxa "%%~b"
+        REM Close lals
+        if !_i! gtr 0 call :this\txt\--all-col-left 0 0
+        REM Display func or call func
+        endlocal & if %_i% gtr 1 (
+            echo.
+            >&2 echo Warning: function sort name conflict
             exit /b 1
-            ...
-            REM return false status
-            exit /b 10
+        ) else if %_i%==0 (
+            if "%~1" neq "" >&2 echo Error: No function found& exit /b 1
+        ) else if %_i%==1 call :pre\%_target% || call %0 :pre\%_target%
+        goto :eof
 
+    :this\annotation\error
+        for /l %%a in (1,1,%2) do shift /2
+        if "%~2"=="" goto :eof
+        REM color 0c
+        >&2 echo.Error: %~2 (%~s0%~1)
+        goto :eof
+
+    :this\annotation\more
+        echo.%~1
+        shift /1
+        if "%~1%~2" neq "" goto %0
+        exit /b 0
+
+    ::: "Get cmd cols" "" "usage: pre cols [[var_name]]"
+    :lib\cols
+        for /f "usebackq skip=4 tokens=2" %%a in (
+            `mode.com con`
+        ) do (
+            if "%~1"=="" (
+                echo %%a
+            ) else set %~1=%%a
+            exit /b 0
+        )
+        exit /b 0
+
+    ```
 
 --------
 
-lib.cmd
+### 关于 `lib.cmd` 的补充说明
 
-        1.  Some cmd function.
-            一些批处理函数，放到环境变量中即可直接使用。
+    1.  Support for /f command.
+        支持在 for /f 中使用，进行判断操作时需要使用 call 命令。
 
-        2.  Support for /f command.
-            支持在 for /f 中使用，进行判断操作时需要使用 call 命令。
+    2.  Support sort function name.
+        函数支持简名，会从左逐个字符进行命令匹配，直到匹配唯一的命令。
+            如 call lib addpath ， a 是全局唯一，可用 call lib a 来代替。
+            注意：简化命令会增加执行时间，请在其他脚本中调用时使用全名。
 
-        3.  Support sort function name.
-            函数支持简名，会从左逐个字符进行命令匹配，直到匹配唯一的命令。
-                如 call lib addpath ， a 是全局唯一，可用 call lib a 来代替。
-                注意：简化命令会增加执行时间，请在其他脚本中调用时使用全名。
+    3.  支持简单的多进程控制。（`hosts` 函数）
 
-        4.  HELP: lib -h or lib [func] -h
-            有关函数用法，使用 lib.cmd -h 或 lib.cmd ［函数名］-h。
+    4.  包含“虚拟磁盘控制”，“`wim` 文件控制”，“字符喘操作”，“`hash` 计算”等功能
 
-        2la             Make the second column left-aligned
-                        将第二列左对齐。
+--------
 
-        cab             Create cab package
-                        压缩 cab 包。
+### 关于 `lib` 、 `_lib` 的说明
 
-        centiTime       Calculating time intervals, print use time
-                        输出执行时间。在从第二次开始输出距离上次执行的时间。
+    1.  包含 shell 实现的复杂数据结构。如“字典”、“队列”等
 
-        dobg            Run some command at background
-                        隐藏执行命令。
+    2.  区分部分函数 macOS 和 linux 版本。
 
-        download        Download something
-                        下载文件。
+--------
 
-        execline        Output text or read config
-                        逐行执行，可以用于输出局部文本或设置变量等。
+### 关于 `3rd` 、 `3rd.cmd` 的说明
 
-        firewall        Open ssh/smb/docker port
-                        打开一些端口。
-
-        gbase64pw       Encode password to base64 string for unattend.xml
-                        支持 unattend.xml 使用的密码编码。
-
-        gbs             Get some backspace (erases previous character)
-                        获得退格符。
-
-        gcols           Get cmd cols
-                        获得当前 cmd 窗口的宽度。
-
-        gfirstpath      Get first path foreach Partiton
-                        遍历分区查找文件夹，并返回第一个匹配的。
-
-        gfreeletter     Get Unused Device Id
-                        获得一个未被使用的分区盘符。
-
-        glen            Get string length
-                        获得字符串的长度。
-
-        gletters        Get Device IDs
-                        获得所有分盘符。
-
-        gnow            Display Time at [YYYYMMDDhhmmss]
-                        以 [YYYYMMDDhhmmss] 的格式输出时间。
-
-        gosinf          Get OS language bit and version
-                        获得目标分区的操作系统版本、位数、语言信息。
-
-        grettels        Get Device IDs DESC
-                        获得倒序的盘符。
-
-        gsid            Get sid by username
-                        获得用户的 sid。
-
-        guuid           Get UUID
-                        获得 UUID。
-
-        head            Print the first some lines of FILE to standard output.
-                        输出文件前几行。
-
-        hosts           Update hosts by ini
-                        通过 ini 配置文件，自动更新 hosts。
-
-        idir            Test path is directory
-                        测试路径是否是目录。
-
-        ifreedir        Test directory is empty
-                        测试目标是否为空文件夹。
-
-        igui            Test script start at GUI
-                        测试脚本是否是双击启动。
-
-        iip             Test string if ip
-                        测试字符串是否是 ip。
-
-        iln             Test path is Symbolic Link
-                        测试路径是否是软链接。
-
-        inum            Test string if Num
-                        测试字符是否是 10 进制整数。
-
-        ipipe           Test script run after pipe
-                        测试脚本是否在管道命令之后。
-
-        irun            Test exe if live
-                        测试 exe 是否执行中。
-
-        ivergeq         Test this system version
-                        测试此系统版本是否高于给定版本号。
-
-        kill            Kill process
-                        关闭进程。
-
-        lip             Show Ipv4
-                        显示本机 IP。
-
-        MD5             Print or check MD5 (128-bit) checksums.
-                        计算文件 MD5。
-
-        own             Change file/directory owner Administrator
-                        将文件或目录的所有者变为当前用户。
-
-        ps1             Run PowerShell script
-                        执行 PowerShell script 脚本。
-
-        repath          Reset default path environment variable
-                        临时重置 PATH 变量为系统默认值。
-
-        rpad            Right pads spaces
-                        等宽输出字符串。用于批量显示结果。
-
-        search          Search file in $env:path
-                        用于寻找环境变量中的可执行文件，支持通配符。如果只匹配到一个结果，将显示其完整路径。
-
-        senvar          Set environment variable
-                        设置环境变量。
-
-        serrlv          Set errorlevel variable
-                        设置 errorlevel 的值。
-
-        SHA1            Print or check SHA1 (160-bit) checksums.
-                        计算文件 SHA1。
-
-        SHA256          Print or check SHA256 (256-bit) checksums.
-                        计算文件 SHA256。
-
-        sip             Search IPv4 by MAC or Host name
-                        通过 MAC 地址或别名，搜索设备 IP。
-                        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
-
-        skiprint        Print text skip some line
-                        跳过指定行输出文件的文本内容到另一个空文本中。
-
-        tail            Print the last some lines of FILE to standard output.
-                        输出文件后几行。
-
-        trimdir         Delete empty directory
-                        删除所有空文件夹。
-
-        trimpath        Path Standardize
-                        PATH 变量临时规范化，可以用于 dir 命令搜索。
-
-        uchm            Uncompress chm file
-                        解压 chm 文件。
-
-        udf             Create iso file from directory
-                        从文件夹新建 iso 文件。支持可启动操作系统盘的封装。
-
-        umsi            Uncompress msi file
-                        解压 msi 文件。
-
-        uset            Unset variable, where variable name left contains
-                        批量清空变量，从左匹配变量名。
-
-        vbs             Run VBScript library from lib.vbs
-                        执行 lib.vbs 中的函数。
-
-        which           Locate a program file in the user's path
-                        通过文件名获得其在 PATH 中的路径，可以显示重名文件。
-
-        zip             Zip or unzip
-                        压缩解压缩 zip
-
-dis.cmd
-
-        集中了一些对磁盘和 wim 的操作。
-
-        batchrc         Support load %USERPROFILE%\.batchrc before cmd.exe run
-                        使 cmd.exe 支持读取 %USERPROFILE%\.batchrc 中的变量配置。
-
-        block           Lock / Unlock partition with BitLocker
-                        使用 BitLocker 进行分区加密解密。
-
-        bootfile        Copy Window PE boot file from CDROM
-                        从 CDROM 中复制 winpe 基本启动文件。
-
-        cexe            Compresses the specified files.
-                        文件压缩（仅支持 win 10）
-
-        cleanup         Component Cleanup
-
-        cpreg           Copy reg to a reg file
-                        reg 文件导出，用于批量修改注册表。
-
-        crede           Add or Remove Web Credential
-                        主要用于管理访问网络资源的凭证。
-
-        devf            Hardware ids manager
-                        硬件 ID 管理。用于生成硬件列表和查找匹配驱动。
-
-        drv             Drivers manager
-                        添加或删除驱动。
-
-        intelAmd        Run this before Chang CPU
-                        从 Intel 切换到 Amd 执行的命令。（避免蓝屏）
-
-        kms             KMS Client
-                        KMS 简化客户端
-
-        nfs             Mount / Umount NFS
-                        挂载或卸载 NFS。
-
-        oc              Feature manager
-                        开启或关闭 windows 应用。
-
-        smb             Mount / Umount samba
-                        挂载或卸载 samba。
-
-        spower          Set power config as server type
-                        使用服务器的电源模式。（不休眠，关闭盖子不进行任何操作）
-
-        ucexe           Uncompress the specified files.
-
-        vhd             Virtual Hard Disk manager
-                        虚拟磁盘管理。
-
-        wim             Wim manager
-                        Wim 文件管理。
-
-
-
-lib.vbs
-
-        使用 lib.cmd vbs 命令进行调用。
-
-        ansi2unic       Convert ansi head to unicode head, or reconvert
-                        在 ANSI 文件前面加（减） UNICODE 头。
-
-        bin2base64      Convert binary file to base64 string
-                        将二进制文件转换成 base64 编码字符。
-
-        doxsl           XML trans form Node by XSL
-                        执行 xsl。
-
-        gclip           Get clipboard data
-                        获得剪贴板中的内容。
-
-        get             Download and save
-                        下载。
-
-        getprint        Download and print as text
-                        显示下载文件的文本内容。
-
-        gfsd            Get target file system drive Letter
-                        获得目标文件系统的盘符。
-
-        gnow            Get format time
-                        获得特定格式的当前时间。
-
-        guuid           Get guid
-                        获得 GUID。
-
-        inftrim         Trim *.inf text for drivers
-                        处理驱动用 inf 文件。
-
-        print
-
-        sclip           Set clipboard data
-                        设置剪贴板。
-
-        sleep           Sleep some milliseconds
-                        暂停若干毫秒。
-
-        txt2bin         Convert base64 to binary file from text
-                        将 base64 字符转换为二进制文件。
-
-        unattend
-
-        unzip           Uncompress
-                        解压缩 zip。
-
-        zip             Create zip file
-                        压缩 zip。
-
-
-lib     (shell script)
-
-        注意权限是否为可执行。
-
-        aapp            Allow all app install
-                        允许 mac 安装任意应用。
-
-        cd2i            Convert a DMG file to ISO
-                        将 DMG 文件转换为 ISO 格式。
-
-        ci2d            Convert an ISO file to DMG format
-                        将 ISO 文件转换为 DMG 格式。
-
-        cim             Create instatll device, by OS X DMG
-                        制作 OS X 系统安装盘。
-
-        dhms            Format Unix timestamp to ??d ??h ??m ??s
-                        格式化数字。
-
-        garri           Get array index
-                        通过值获得数组索引。
-
-        gmd5pw          Get password for stdin chpasswd -e
-                        获得 chpasswd 命令支持密码编码。
-
-        gpkg            Get apk file from AppStore
-                        截获 AppStore 的原版安装包。完成后会放到 Download 文件夹中。
-                        对于小文件下载非常有效。
-                        支持批量监听。
-                        可以设置监听时间，默认监听 60 秒。
-                        在监听时间内，新建下载和正在下载的 app 都会被纳入监控。
-                        当监听结束后，脚本不会退出，会持续跟踪文件的下载状态，直到所有 app 都下载完成。
-                        你可以随时使用 control + C 退出此命令。新启动的 gpkg 命令会处理上次遗留的 app。
-                        （未来会加入下载失败的提示）
-
-        hid             Hidden file/directory
-                        显示或隐藏文件。
-
-        hosts           Update hosts by ini
-                        通过 ini 配置文件，自动更新 hosts。
-
-        iipv4           Test string is ipv4
-                        测试字符串是否是 ipv4
-
-        inum            Test str is num
-                        测试字符串是否是数字。
-
-        lip             Show IPv4
-                        显示本机的 ip。
-
-        log             Tag date time each line
-                        给输出添加日志标记。
-
-        low             Convert lowercase
-                        将字符转换成小写。
-
-        nohid           No hidden directory
-
-        own             Make owner
-                        重置文件夹所有者。
-
-        plist           Plist editer
-                        操作
-
-        pubrsa          Copy rsa public key to remote
-                        将本地的公钥上传至远端。
-
-        rboot           Rebuild boot file
-                        重新建立启动文件。
-
-        scpp            Auto scp with password
-
-        sdd             Write img to disk
-                        将镜像写入磁盘。
-
-        sip             Search IPv4 by MAC or Host name
-                        通过 MAC 地址或别名，搜索设备 IP。
-                        （别名请参考 ini 文本文件格式，放入脚本所在路径或 HOME 路径下）
-
-        tailto          save tail n line
-                        保留文件的最后 n 行。
-
-        trspace         Replace all space to one space
-                        将多个空格替换成一个。
-
-        trxml           Get xml without annotations
-                        去掉 xml 中的注释。
-
-        udf             Create ISO by directory
-                        从文件夹新建 iso 文件。
-
-        unascii         Print text not in ASCII char
-                        输出非 ASCII 字符。
-
-        upp             Convert uppercase
-                        将字符转换为大写。
-
-        vnc             Connect vnc server
-                        链接 vnc 服务端。
+    1.  对一些常用的命令行工具，进行了二次命令封装。

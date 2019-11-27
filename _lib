@@ -1,0 +1,917 @@
+#!/bin/bash
+#   Copyright 2017-2019 bin jin
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+# Tag prefix each line, support `date` format
+# Usage: | _prefix "[str|%F %T]"
+_prefix () {
+    [ "$1" ] || set "%F %T, ";
+    if [ "${1/\%/}" == "$1" ]; then
+        awk '{print '"$1"' $0};fflush(stdout)'
+    else
+        if which gawk >/dev/null; then
+            gawk '{print strftime("'"$1"'") $0};fflush(stdout)';
+        elif which perl >/dev/null; then
+            perl -ne 'use POSIX qw(strftime); print strftime("'"$1"'", localtime), $_'
+        else
+            return 1;
+        fi
+    fi
+}
+
+# thread valve
+#   env:
+#        THREAD_VALVE_POOL                  thread valve pool id cache.
+#        THREAD_VALVE_PID                   is array (not change this).
+#        TV_RUN_TIMEOUT                     default 600 sec.
+#
+# Usage: _thread_valve [option] [argument...]
+#
+# option:
+#    --init [thread_count]                  create thread valve.
+#    --run  [commands] [argument...]        run some commands.
+#    --destroy                              close thread valve.
+#    --break                                close thread valve as soon as possible.
+_thread_valve () {
+    [ "${1:0:2}" == "--" ] || { THREAD_VALVE_POOL=$(($1 + 10)); shift; };
+    : ${THREAD_VALVE_POOL:=10};
+    local thread_valve_fifo="/tmp/.tv+$UID+$$+$THREAD_VALVE_POOL+${0//\//\+}.fifo";
+
+    case $1 in
+        # use before loop, need count
+        --init)
+            for ((; THREAD_VALVE_POOL<`ulimit -n`; THREAD_VALVE_POOL++)); do
+                thread_valve_fifo="/tmp/.tv+$UID+$$+$THREAD_VALVE_POOL+${0//\//\+}.fifo";
+                # darwin: can not find '/proc/self/fd/[0-9]+'
+                [ ! -e "/dev/fd/$THREAD_VALVE_POOL" ] && mkfifo "$thread_valve_fifo" 2>/dev/null && break
+                sleep 0.$((RANDOM % 9 + 1));
+            done
+            eval "exec $THREAD_VALVE_POOL<> '$thread_valve_fifo'";
+            seq 0 $((${2:-4} - 1)) > "$thread_valve_fifo"; # perl -e 'print "\n" x '$((${2:-3} - 1)) > "$thread_valve_fifo";
+        ;;
+        --run)
+            [ $# -gt 1 -a -p "$thread_valve_fifo" ] || return 1;
+            local THREAD_VALVE_ID;
+            read -u $THREAD_VALVE_POOL -t ${TV_RUN_TIMEOUT:-600} THREAD_VALVE_ID 2>/dev/null || return 1;
+            # exit
+            if [ "$THREAD_VALVE_ID" == "exit" ]; then
+                rm -f "$thread_valve_fifo";
+                eval "exec $THREAD_VALVE_POOL>&- $THREAD_VALVE_POOL<&-";
+                return 0
+            fi
+            shift;
+            {
+                "$@";
+                [ -p "$thread_valve_fifo" ] && printf "$THREAD_VALVE_ID\n" > "$thread_valve_fifo"
+            } &
+            THREAD_VALVE_PID[$THREAD_VALVE_ID]=$!
+        ;;
+        # use after loop
+        --destroy)
+            if [ ${#THREAD_VALVE_PID[@]} -gt 0 ]; then
+                wait ${THREAD_VALVE_PID[@]};
+                unset THREAD_VALVE_PID
+            fi
+            _thread_valve --break
+        ;;
+        --break)
+            [ -p "$thread_valve_fifo" ] || return 1
+            if which timeout; then
+                timeout 0.5 cat "$thread_valve_fifo";
+            elif which perl; then
+                { perl -e 'alarm shift; exec @ARGV' 1 cat "$thread_valve_fifo"; } 2>/dev/null;
+            else
+                printf "[TV:ERROR] break fail.\n" >&2
+                return 1
+            fi >/dev/null
+            printf "exit\n" > "$thread_valve_fifo";
+            _thread_valve --run :;
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[TV:ERROR] invalid option: " "$1" >&2
+        ;;
+    esac
+}
+
+# do some thing between threads
+# env:
+#       SHARE_DO_POOL
+#
+# Usage: _share_do [option] [[arguments]]
+#
+# option:
+#    --init                                 create
+#    --run  [commands] [argument...]        run some commands.
+#    --destroy                              close.
+_share_do () {
+    [ "${1:0:2}" == "--" ] || { SHARE_DO_POOL=$(($1 + 30)); shift; };
+    : ${SHARE_DO_POOL:=30};
+    local share_do_file="/tmp/.share+$UID+$$+$SHARE_DO_POOL+${0//\//\+}";
+
+    if [ "$1" != "--init" -a ! -p "$share_do_file.lock" ]; then
+        printf "[SD:ERROR] closed or not created.\n" >&2
+        if [ -s "$share_do_file.pid" ]; then
+            kill $(cat "$share_do_file.pid");
+            rm -f "$share_do_file."*
+        fi
+        return 1
+    fi
+
+    case $1 in
+        --init)
+            for ((; SHARE_DO_POOL<`ulimit -n`; SHARE_DO_POOL++)); do
+                share_do_file="/tmp/.share+$UID+$$+$SHARE_DO_POOL+${0//\//\+}";
+                # darwin: can not find '/proc/self/fd/[0-9]+'
+                [ -e "/dev/fd/$SHARE_DO_POOL" -o -e "/dev/fd/$(($SHARE_DO_POOL + 1))" -o -e "/dev/fd/$(($SHARE_DO_POOL + 2))" -o -e "$share_do_file.lock" ] || {
+                    mkfifo "$share_do_file.in" "$share_do_file.out" "$share_do_file.lock" 2>/dev/null && break
+                };
+                sleep 0.$((RANDOM % 9 + 1));
+            done
+            {
+                eval "exec $SHARE_DO_POOL<> '$share_do_file.in'";
+                eval "exec $(($SHARE_DO_POOL + 1))<> '$share_do_file.out'";
+                eval "exec $(($SHARE_DO_POOL + 2))<> '$share_do_file.lock'";
+                printf "\n" > "$share_do_file.lock";
+                local command_and_arguments;
+                while read command_and_arguments;
+                do
+                    if [ "${command_and_arguments:${#command_and_arguments}-2}" != " #" ]; then
+                        printf "[SD:ERROR] incomplete commands %s\n" "'${command_and_arguments//%34/\\\"}'" >&2;
+                        continue
+                    elif [ "$command_and_arguments" == "exit #" ]; then
+                        break
+                    fi
+                    {
+                        eval ${command_and_arguments//%34/\\\"}; # run command
+                        printf "\n"
+                    } > "$share_do_file.out"
+                done < "$share_do_file.in";
+
+                # close buffer, break read
+                rm -f "$share_do_file."*;
+                eval "exec $SHARE_DO_POOL>&- $SHARE_DO_POOL<&- $(($SHARE_DO_POOL + 1))>&- $(($SHARE_DO_POOL + 1))<&- $(($SHARE_DO_POOL + 2))>&- $(($SHARE_DO_POOL + 2))<&-"
+            } &
+            printf "$!" > "$share_do_file.pid"
+        ;;
+        --run)
+            shift;
+            local parameter arguments;
+            for parameter in "$@"; do
+                parameter="${parameter//\"/%34}"; # replace "
+                [ "${parameter/ /}" == "$parameter" ] || parameter="\"$parameter\"";
+                arguments="$arguments$parameter "
+            done
+            # unuse 'REPLY'
+            read parameter 2>/dev/null < "$share_do_file.lock" || return 1;
+            [ -p "$share_do_file.in" ] && printf "%s #\n" "${arguments:0:-1}" > "$share_do_file.in";
+            read arguments < "$share_do_file.out" && [ "$arguments" ] && printf %s "$arguments";
+            [ -p "$share_do_file.lock" ] && printf "\n" > "$share_do_file.lock"
+        ;;
+        --destroy)
+            [ -p "$share_do_file.in" ] && printf "exit #\n" > "$share_do_file.in"
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[SD:ERROR] invalid option: " "$1" >&2
+        ;;
+    esac
+}
+
+# variable map, atomic key value
+#   env:
+#       VARIABLE_MAP_SHARE_DO_POOL              for '_share_do'
+#       VARIABLE_MAP_PREFIX_*
+#
+# Usage: __variable_map [option] [arguments]
+#
+# option:
+#    --init                       must run it at begin
+#    --put     [key] [value]      put key value in map, print old value
+#    --incrby  [key] [integer]    increment by key (atomic integer), print old value
+#    --get     [key]              print value by key
+#    --remove  [key]              remove value by key, print old value
+#    --size                       get map size
+#    --clear                      clear map
+#    --destroy                    must close it at end
+__variable_map () {
+    : ${VARIABLE_MAP_SHARE_DO_POOL:=50};
+    local i key value SHARE_DO_POOL=$VARIABLE_MAP_SHARE_DO_POOL;
+
+    case $1 in
+        --init)
+            _share_do --init;
+            return 0
+        ;;
+        --destroy)
+            _share_do --destroy;
+            return 0
+        ;;
+        *)
+            # have suffix
+            if [ "${*%@[0-9]*}" != "$*" ]; then
+                [ "${*%@$VARIABLE_MAP_SHARE_DO_POOL}" == "$*" ] && return 1
+            else
+                _share_do --run __variable_map "$@" "@$VARIABLE_MAP_SHARE_DO_POOL";
+                return 0
+            fi
+        ;;
+    esac
+
+    # encode key
+    if [[ $2 == *[^0-9A-Za-z_]* ]]; then
+        for ((i=0; i<${#2}; i++)); do
+            if [[ ${2:$i:1} == [0-9A-Za-z_] ]]; then
+                key+="${2:$i:1}";
+            else
+                key+=`printf _%d "'${2:$i:1}"`;
+            fi
+        done
+    else
+        key="$2"
+    fi
+    value="$3";
+
+    case $1 in
+        --put)
+            eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"; VARIABLE_MAP_PREFIX_$key='$value'"
+        ;;
+        --incrby)
+            eval "printf %d \$VARIABLE_MAP_PREFIX_$key; VARIABLE_MAP_PREFIX_$key=\$((VARIABLE_MAP_PREFIX_$key + $value))"
+        ;;
+        --get)
+            eval printf %s \"\$VARIABLE_MAP_PREFIX_$key\"
+        ;;
+        --remove)
+            eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"";
+            unset VARIABLE_MAP_PREFIX_$key
+        ;;
+        --size)
+            # 'grep' will output "\n"
+            printf %d $(set | grep --count '^VARIABLE_MAP_PREFIX_')
+        ;;
+        --clear)
+            # darwin awk not support: --field-separator=
+            unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`
+        ;;
+        --keys|--values|--arr|--clearall)
+            printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2;
+            return 1
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2;
+            return 1
+        ;;
+    esac
+}
+
+
+# Message Queue with timeout
+#   env:
+#       MESSAGE_QUEUE_POOL                      message queue pool id cache.
+#       MESSAGE_QUEUE_VARIABLE_MAP_POOL         for '__variable_map'
+#       MQ_REPUT_MAX                            default: 20
+#       TIME_LIMIT_COMMAND_4_MQ                 (not change this)
+#
+# Usage: _message_queue [option] [arguments]
+#
+# option:
+#    --init [[thread_count]]                    create message queue.
+#    --put  [commands] [argument...]            put some commands.
+#    --destroy                                  close.
+#    --break                                    close message queue as soon as possible.
+_message_queue () {
+
+    if [ "$TIME_LIMIT_COMMAND_4_MQ" ]; then
+        :
+    elif which timeout >/dev/null; then
+        # timeout >= 0.5 for support WSL 1809
+        TIME_LIMIT_COMMAND_4_MQ="timeout 0.5"
+    elif which perl >/dev/null; then
+        TIME_LIMIT_COMMAND_4_MQ="perl -e 'alarm shift; exec @ARGV' 1";
+    else
+        printf "[MQ:ERROR] 'timeout' or 'perl' command not found.\n" >&2
+        return 1
+    fi
+
+    [ "${1:0:2}" == "--" ] || { MESSAGE_QUEUE_POOL=$(($1 + 20)); shift; };
+    : ${MESSAGE_QUEUE_POOL:=20};
+    : ${MESSAGE_QUEUE_VARIABLE_MAP_POOL:=60};
+    local message_queue_file="/tmp/.mq+$UID+$$+$MESSAGE_QUEUE_POOL+${0//\//\+}" \
+        VARIABLE_MAP_SHARE_DO_POOL=$MESSAGE_QUEUE_VARIABLE_MAP_POOL;
+
+    if [ "$1" != "--init" -a ! -p "$message_queue_file.fifo" ]; then
+        printf "[MQ:ERROR] closed or not created.\n" >&2
+        if [ -s "$message_queue_file.pid" ]; then
+            kill $(cat "$message_queue_file.pid");
+            rm -f "$message_queue_file."*
+        fi
+        return 1
+    fi
+
+    case $1 in
+        --init)
+            for ((; MESSAGE_QUEUE_POOL<`ulimit -n`; MESSAGE_QUEUE_POOL++)); do
+                message_queue_file="/tmp/.mq+$UID+$$+$MESSAGE_QUEUE_POOL+${0//\//\+}";
+                # darwin: can not find '/proc/self/fd/[0-9]+'
+                [ -e "/dev/fd/$MESSAGE_QUEUE_POOL" -o -e "$message_queue_file.fifo" ] || {
+                    mkfifo "$message_queue_file.fifo" 2>/dev/null && break
+                };
+                sleep 0.$((RANDOM % 9 + 1));
+            done
+
+            {
+                # make bidirectional buffer
+                eval "exec $MESSAGE_QUEUE_POOL<> '$message_queue_file.fifo'";
+
+                unset THREAD_VALVE_PID;
+                __variable_map --init;
+                __variable_map --put message_queue_size 0;
+                _thread_valve --init $2;
+                # make handler
+                local command_and_arguments;
+                while read command_and_arguments; do
+                    if [ "${command_and_arguments:${#command_and_arguments}-2}" != " #" ]; then
+                        printf "[MQ:ERROR] incomplete commands %s\n" "'${command_and_arguments//%34/\\\"}'" >&2;
+                        continue
+                    elif [ "$command_and_arguments" == "exit #" ]; then
+                        _thread_valve --destroy;
+                        __variable_map --destroy;
+                        break
+                    fi
+                    __variable_map --incrby message_queue_size -1 >/dev/null;
+                    eval _thread_valve --run ${command_and_arguments//%34/\\\"}; # run command
+                done < "$message_queue_file.fifo"
+
+                # close buffer
+                rm -f "$message_queue_file."*;
+                eval "exec $MESSAGE_QUEUE_POOL>&- $MESSAGE_QUEUE_POOL<&-";
+                printf "[MQ:INFO] closed.\n"
+            } &
+            printf "$!" > "$message_queue_file.pid";
+
+            printf "[MQ:INFO] open.\n"
+        ;;
+        --put)
+            local parameter arguments count=0;
+            shift;
+            for parameter in "$@"; do
+                parameter="${parameter//\"/%34}"; # replace "
+                [ "${parameter/ /}" == "$parameter" ] || parameter="\"$parameter\"";
+                arguments="$arguments$parameter "
+            done
+            __variable_map --incrby message_queue_size 1 >/dev/null;
+            until printf "%s #\n" "${arguments:0:-1}" | { $TIME_LIMIT_COMMAND_4_MQ tee "$message_queue_file.fifo"; } >/dev/null 2>&1; do
+                if [ $((++count)) -gt ${MQ_REPUT_MAX:-20} -o ! -p "$message_queue_file.fifo" ]; then
+                    printf "[MQ:ERROR] put %s failed.\n" "'$*'" >&2;
+                    __variable_map --incrby message_queue_size -1 >/dev/null;
+                    return 1
+                fi
+                sleep $((RANDOM % 9 + 9)).$((RANDOM % 9 + 1));
+            done
+        ;;
+        --destroy)
+            printf "exit #\n" | { $TIME_LIMIT_COMMAND_4_MQ tee "$message_queue_file.fifo"; } >/dev/null 2>&1 || {
+                printf "[MQ:ERROR] 'destroy' failed.\n" >&2;
+                return 1
+            }
+        ;;
+        --break)
+            local count;
+            printf "[MQ:WARN] will break.\n" >&2;
+            count=`{ $TIME_LIMIT_COMMAND_4_MQ cat "$message_queue_file.fifo"; } 2>/dev/null | grep -c '[0-9a-zA-Z]'` && {
+                printf "[MQ:INFO] recall task '$count' success.\n";
+                :
+            } || printf "[MQ:WARN] no task recall.\n";
+            _message_queue --destroy
+        ;;
+        --size)
+            __variable_map --get message_queue_size
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[MQ:ERROR] invalid option: " "$1" >&2
+        ;;
+    esac
+}
+
+# Offset map
+#   env:
+#       MAP_OFFSET        cache key and value length
+#       MAP_ENTRY         cache key and value content
+#       MAP_VALUE         cache return value
+#       MAP2ARRAY
+#
+# Usage: __offset_map [[map_pool]] [option] [arg...]
+#       max pool num: 255, default: 0,
+#       if you will use _set function, num need less than 128
+#
+# option:
+#   --put       [key] [value]    put key value in map, print and set old value in 'MAP_VALUE'
+#   --incrby    [key] [integer]  increment by key, print and set old value in 'MAP_VALUE'
+#   --get       [key]            print value by key, print and set value in 'MAP_VALUE'
+#   --remove    [key]            remove value by key, print and set old value in 'MAP_VALUE'
+#   --size                       print map size
+#   --keys                       set all keys in 'MAP2ARRAY' array
+#   --values                     set all values in 'MAP2ARRAY' array
+#   --arr                        set all in 'MAP2ARRAY' array, like: [key value]...
+#   --clear                      clear map by pool
+#   --clearall                   clear all map
+__offset_map () {
+    [ "$1" ] || return 1;
+    local i len_arr offset=0 entry map_pool=0;
+    [ "${1:0:2}" == "--" ] || { map_pool=$(($1 & 0xFF)); shift; };
+
+    case $1 in
+        --get|--incrby|--put|--remove)
+            local args hash_code=0 key="$2" value="$3";
+            # hash code
+            for ((i=0; i<${#key}; i++)); do args+=" '${key:$i:1}"; done;
+            for i in `printf "%d " $args`; do hash_code=$((131 * hash_code + $i)); done; # seed: 31 131 1313 13131 131313
+            # $((2**63-1)) = $((0x7FFFFFFFFFFFFFFF)), $((2**31-1)) = $((0x7FFFFFFF))
+            hash_code=$((($hash_code & 0x7FFFFFFFFFFFFFFF) % 0x7FFFFFFFFFFFFF + (${map_pool:-0} & 0xFF) * 0x7FFFFFFFFFFFFF));
+
+            # matching hash
+            if [ "${MAP_OFFSET[$hash_code]}" ]; then
+                len_arr=(${MAP_OFFSET[$hash_code]});
+                for ((i=0; i<${#len_arr[@]}; i+=2)); do
+                    # If key aleady in, update value
+                    entry=${MAP_ENTRY[$hash_code]};
+                    # matching key
+                    if [ "${entry:$offset:${len_arr[$i]}}" == "$key" ]; then
+                        MAP_VALUE="${entry:$offset + ${len_arr[$i]}:${len_arr[$i + 1]}}";
+
+                        if [ "$1" == "--incrby" -o "$1" == "--put" ]; then
+                            if [ "$1" == "--incrby" ]; then
+                                value=$(($MAP_VALUE + $value)) || return 1
+                            fi
+                            ((offset += ${len_arr[$i]}));
+                            # [left]$value[right]
+                            MAP_ENTRY[$hash_code]="${entry:0:$offset}$value${entry:$offset + ${len_arr[$i + 1]}}";
+                            # after value update
+                            len_arr[$i + 1]=${#value};
+                            MAP_OFFSET[$hash_code]="${len_arr[@]}";
+
+                        elif [ "$1" == "--remove" ]; then
+                            if [ ${#len_arr[@]} == 2 ]; then
+                                unset MAP_OFFSET[$hash_code] MAP_ENTRY[$hash_code]
+
+                            else
+                                MAP_ENTRY[$hash_code]="${entry:0:$offset}${entry:$offset + ${len_arr[$i]} + ${len_arr[$i + 1]}}";
+                                # unset: arr[$i+1], no space
+                                unset len_arr[$i] len_arr[$i+1];
+                                MAP_OFFSET[$hash_code]="${len_arr[@]}";
+
+                            fi
+                            ((--MAP_ENTRY[0x7FFFFFFFFFFFFFFF - $map_pool]))
+
+                        fi
+                        printf %s "$MAP_VALUE";
+                        return 0
+                    fi
+                    ((offset += ${len_arr[$i]} + ${len_arr[$i + 1]}))
+                done
+            fi
+            if [ "$1" == "--incrby" -o "$1" == "--put" ]; then
+                # Apend key value
+                MAP_OFFSET[$hash_code]+=" ${#key} ${#value}";
+                MAP_ENTRY[$hash_code]+="${key}$value";
+                ((++MAP_ENTRY[0x7FFFFFFFFFFFFFFF - $map_pool]))
+                return 0
+            else
+                return 1
+            fi
+        ;;
+        --arr|--clear|--keys|--values)
+            unset MAP2ARRAY;
+            [ ${#MAP_OFFSET[@]} == 0 ] && return 1;
+            local indexs left_bounds right_bounds;
+            ((left_bounds = $map_pool * 0x7FFFFFFFFFFFFF, right_bounds = left_bounds + 0x7FFFFFFFFFFFFF));
+            # add empty bounds index for subvariable, if not exist
+            [ "${MAP_OFFSET[$left_bounds]}" ] || MAP_OFFSET[$left_bounds]="";
+            [ "${MAP_OFFSET[$right_bounds]}" ] || MAP_OFFSET[$right_bounds]="";
+            indexs=${!MAP_OFFSET[@]};
+            indexs="${indexs% $right_bounds*} ";
+            indexs=${indexs#*$left_bounds };
+            indexs=${indexs% };
+            if [ "${MAP_OFFSET[$left_bounds]}" ]; then
+                indexs="$left_bounds $indexs"
+            else
+                # remove empty bounds index
+                unset MAP_OFFSET[$left_bounds]
+            fi
+            # remove empty bounds index
+            [ "${MAP_OFFSET[$right_bounds]}" ] || unset MAP_OFFSET[$right_bounds];
+            [ "$indexs" ] || return 1;
+
+            case $1 in
+                --keys|--values|--arr)
+                    local len idx mod=0 is_arr=false;
+                    if [ "$1" == "--values" ]; then
+                        mod=1
+                    elif [ "$1" == "--arr" ]; then
+                        is_arr=true
+                    fi
+                    for i in $indexs; do
+                        len_arr=(${MAP_OFFSET[$i]}) entry="${MAP_ENTRY[$i]}" offset=0;
+                        for len in ${len_arr[@]}; do
+                            if $is_arr || [ $((idx++ % 2)) == $mod ]; then
+                                MAP2ARRAY[${#MAP2ARRAY[@]}]="${entry:$offset:$len}";
+                            fi
+                            ((offset += $len));
+                        done
+                    done
+                ;;
+                --clear)
+                    # unset: variable must without '$''
+                    [ "$indexs" ] && unset MAP_ENTRY[0x7FFFFFFFFFFFFFFF-i] MAP_OFFSET[${indexs// /] MAP_OFFSET[}] MAP_ENTRY[${indexs// /\] MAP_ENTRY[}];
+                    # }
+                ;;
+            esac
+            return 0
+        ;;
+        --size)
+            printf "${MAP_ENTRY[0x7FFFFFFFFFFFFFFF - $map_pool]:-0}"
+        ;;
+        --clearall)
+            unset MAP_ENTRY MAP_OFFSET
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2
+        ;;
+    esac
+}
+
+# # Split map
+# #   env:
+# #       MAP                      cache key and value split by backspace
+# #       MAP_VALUE                cache return value
+# #       MAP2ARRAY
+# #
+# # Usage: __split_map [[map_pool]] [option] [arg...]
+# #       max pool num: 255, default: 0,
+# #       if you will use _set function, num need less than 128
+# #
+# # option:
+# #   --put       [key] [value]    put key value in map, print and set old value in 'MAP_VALUE'
+# #   --incrby    [key] [integer]  increment by key, print and set old value in 'MAP_VALUE'
+# #   --get       [key]            print value by key, set value in 'MAP_VALUE'
+# #   --remove    [key]            remove value by key, print and set old value in 'MAP_VALUE'
+# #   --size                       print map size
+# #   --keys                       set all keys in 'MAP2ARRAY' array
+# #   --values                     set all values in 'MAP2ARRAY' array
+# #   --arr                        set all in 'MAP2ARRAY' array, like: [key value]...
+# #   --clear                      clear map by pool
+# #   --clearall                   clear all map
+# __split_map () {
+#     [ "$1" ] || return 1;
+#     local i entry backspace offset=0 map_pool=0 OLDIFS="$IFS";
+#     printf -v backspace "\b";
+#     [ "${1:0:2}" == "--" ] || { map_pool=$(($1 & 0xFF)); shift; };
+#
+#     case $1 in
+#         --get|--incrby|--put|--remove)
+#             local args hash_code=0 key="$2" value="$3";
+#             # hash code
+#             for ((i=0; i<${#key}; i++)); do args+=" '${key:$i:1}"; done;
+#             for i in `printf "%d " $args`; do hash_code=$((131 * hash_code + $i)); done; # seed: 31 131 1313 13131 131313
+#             # $((2**63-1)) = $((0x7FFFFFFFFFFFFFFF)), $((2**31-1)) = $((0x7FFFFFFF))
+#             hash_code=$((($hash_code & 0x7FFFFFFFFFFFFFFF) % 0x7FFFFFFFFFFFFF + (${map_pool:-0} & 0xFF) * 0x7FFFFFFFFFFFFF));
+#
+#             # matching hash
+#             if [ "${MAP[$hash_code]}" ]; then
+#                 IFS="$backspace";
+#                 entry=(${MAP[$hash_code]});
+#                 IFS="$OLDIFS";
+#
+#                 for ((i=0; i<${#entry[@]}; i+=2)); do
+#                     if [ "${entry[$i]}" == "$key" ]; then
+#                         MAP_VALUE="${entry[$i + 1]}";
+#                         if [ "$1" == "--incrby" -o "$1" == "--put" ]; then
+#                             if [ "$1" == "--incrby" ]; then
+#                                 value=$(($MAP_VALUE + $value)) || return 1;
+#                             fi
+#                             ((offset += ${#entry[$i]} + 1));
+#                             args="${MAP[$hash_code]}"; # armv7l GNU/Linux armada38x: Segmentation fault (core dumped)
+#                             MAP[$hash_code]=${args:0:$offset}$value${args:$offset + ${#entry[$i + 1]}};
+#
+#                         elif [ "$1" == "--remove" ]; then
+#                             if [ ${#entry[@]} == 2 ]; then
+#                                 unset MAP[$hash_code]
+#                             elif [ $((${#entry[@]} - $i)) == 2 ]; then
+#                                 # remove tail
+#                                 MAP[$hash_code]=${MAP[$hash_code]:0:$offset - 1}
+#                             else
+#                                 MAP[$hash_code]=${MAP[$hash_code]:0:$offset}${MAP[$hash_code]:$offset + ${#entry[$i]} + ${#entry[$i + 1]} + 2}
+#                             fi
+#                             ((--MAP[0x7FFFFFFFFFFFFFFF - $map_pool]))
+#
+#                         fi
+#                         printf %s "$MAP_VALUE";
+#                         return 0
+#                     fi
+#                     ((offset += ${#entry[$i]} + ${#entry[$i + 1]} + 2))
+#                 done
+#             fi
+#             if [ "$1" == "--incrby" -o "$1" == "--put" ]; then
+#                 if [ "${MAP[$hash_code]}" ]; then
+#                     MAP[$hash_code]+="$backspace";
+#                 fi
+#                 MAP[$hash_code]+="${key}$backspace${value}";
+#                 ((++MAP[0x7FFFFFFFFFFFFFFF - $map_pool]));
+#                 return 0
+#             else
+#                 return 1
+#             fi
+#         ;;
+#         --arr|--clear|--keys|--values)
+#             unset MAP2ARRAY;
+#             [ ${#MAP[@]} == 0 ] && return 1;
+#             local indexs left_bounds right_bounds;
+#             ((left_bounds = $map_pool * 0x7FFFFFFFFFFFFF, right_bounds = left_bounds + 0x7FFFFFFFFFFFFF));
+#             # add empty bounds index for subvariable, if not exist
+#             [ "${MAP[$left_bounds]}" ] || MAP[$left_bounds]="";
+#             [ "${MAP[$right_bounds]}" ] || MAP[$right_bounds]="";
+#             indexs=${!MAP[@]};
+#             indexs="${indexs% $right_bounds*} ";
+#             indexs=${indexs#*$left_bounds };
+#             indexs=${indexs% };
+#             if [ "${MAP[$left_bounds]}" ]; then
+#                 indexs="$left_bounds $indexs"
+#             else
+#                 # remove empty bounds index
+#                 unset MAP[$left_bounds]
+#             fi
+#             # remove empty bounds index
+#             [ "${MAP[$right_bounds]}" ] || unset MAP[$right_bounds];
+#             [ "$indexs" ] || return 1;
+#
+#             case $1 in
+#                 --arr|--keys|--values)
+#                     local idx step mod=0 is_arr=false;
+#                     if [ "$1" == "--values" ]; then
+#                         mod=1
+#                     elif [ "$1" == "--arr" ]; then
+#                         is_arr=true
+#                     fi
+#                     for i in $indexs; do
+#                         IFS=$backspace;
+#                         entry=(${MAP[$i]});
+#                         IFS="$OLDIFS";
+#                         for idx in ${!entry[@]}; do
+#                             if $is_arr || [ $((step++ % 2)) == $mod ]; then
+#                                 MAP2ARRAY[${#MAP2ARRAY[@]}]="${entry[$idx]}";
+#                             fi
+#                         done
+#                     done
+#                 ;;
+#                 --clear)
+#                     # unset: variable can without '$''
+#                     unset MAP[0x7FFFFFFFFFFFFFFF-i] MAP[${indexs// /] MAP[}];
+#                     # }
+#                 ;;
+#             esac
+#             return 0
+#         ;;
+#         --size)
+#             printf "${MAP[0x7FFFFFFFFFFFFFFF - $map_pool]:-0}"
+#         ;;
+#         --clearall)
+#             unset MAP
+#         ;;
+#         *)
+#             printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2
+#         ;;
+#     esac
+# }
+
+# Usage: _map [[map_pool]] [option] [arg...]
+_map () {
+    # __variable_map "$@"
+    __offset_map "$@"
+    # __split_map "$@"
+}
+
+# Usage: _set [[instance_num]] [option] [arg...]
+#       max instance num: 127, default: 0. it will use map instance 128 ~ 255
+#
+# option:
+#   --add       [key]        add if not have
+#   --contains  [key]        test have
+#   --remove    [key]        remove
+#   --size
+#   --arr                    set all in 'MAP2ARRAY' array
+#   --clear                  clear set by instance
+_set () {
+    [ "$1" ] || return 1;
+    local set_pool=$((0x80));
+    [ "${1:0:2}" == "--" ] || { set_pool=$(( ($1 & 0x7F) + 0x80)); shift; };
+    case $1 in
+        --add)
+            [ $# -ge 2 ] || return 2;
+            _map $set_pool --get "$2" >/dev/null && return 1
+            _map $set_pool --put "$2" _;
+            return 0
+        ;;
+        --contains)
+            [ $# -ge 2 ] || return 2;
+            _map $set_pool --get "$2" >/dev/null && return 0;
+            return 1
+        ;;
+        --remove)
+            [ $# -ge 2 ] || return 2;
+            _map $set_pool --remove "$2" >/dev/null || return 1
+            return 0
+        ;;
+        --size)
+            _map $set_pool --size
+        ;;
+        --arr)
+            _map $set_pool --keys
+        ;;
+        --clear)
+            _map $set_pool --clear
+        ;;
+        *)
+            printf "%s\033[31m%s\033[0m%s\n" "[SET:ERROR] invalid option: " "$1" >&2
+        ;;
+    esac
+}
+
+# test var
+_init_defined () {
+    local a;
+    for a in "$@"; do
+        eval printf \$$a >/dev/null 2>&1 || {
+            printf "[ERROR] var '$a' not defined\n" >&2;
+            return 1
+        }
+    done
+    return 0
+}
+
+# test exec
+_init_exist () {
+    local a;
+    for a in "$@"; do
+        which $a >/dev/null 2>&1 || {
+            printf "[ERROR] file %s not in \$PATH\n" "'$a'" >&2;
+            return 1
+        }
+    done
+    return 0
+}
+
+# Threads lock.
+#   env:
+#       LOCK_FD
+#       LOCK_TIMEOUT
+#
+# Usage: _spinlock [option] [arguments]
+#
+# option:
+#    --lock      [file_path]
+#    --unlock    [[fd_num]]
+_spinlock () {
+    [ "$2" ] || return 1;
+    : ${LOCK_FD:=40};
+    case $1 in
+        --lock)
+            local time_stamp=$((`date +%s` + ${LOCK_TIMEOUT:-1800}));
+            for ((; LOCK_FD<`ulimit -n`; LOCK_FD++)); do
+                # darwin: can not find '/proc/self/fd/[0-9]+'
+                [ ! -e "/dev/fd/$LOCK_FD" ] && break
+            done
+            eval "exec $LOCK_FD>>'$2'";
+            until flock --exclusive --nonblock $LOCK_FD; do
+                if [ ! -f "$2" -o $(date +%s) -ge $time_stamp ]; then
+                    eval "exec $LOCK_FD>&-"
+                    return 1
+                fi
+                sleep 0.$((RANDOM % 5 * 2 + 1));
+            done
+        ;;
+        --unlock)
+            eval "exec ${2:-$LOCK_FD}>&-"
+        ;;
+    esac
+
+    return 0
+}
+
+# 12345678      7 - 7   # 12345     4 - 4
+#        abcd   0 - 0   #     abcde 0 - 0
+
+# 12345678      6 - 7   # 12345     3 - 4
+#       abcd    0 - 1   #    abcde  0 - 1
+
+# 12345678      5 - 7   # 12345     2 - 4
+#      abcd     0 - 2   #   abcde   0 - 2
+
+# 12345678      4 - 7   # 12345     1 - 4
+#     abcd      0 - 3   #  abcde    0 - 3
+
+# 12345678      3 - 6   # 12345     0 - 4
+#    abcd       0 - 3   # abcde     0 - 4
+
+# 12345678      2 - 5   #  12345    0 - 3
+#   abcd        0 - 3   # abcde     1 - 4
+
+# 12345678      1 - 4   #   12345   0 - 2
+#  abcd         0 - 3   # abcde     2 - 4
+
+# 12345678      0 - 3   #    12345  0 - 1
+# abcd          0 - 3   # abcde     3 - 4
+
+#  12345678     0 - 2   #     12345 0 - 0
+# abcd          1 - 3   # abcde     4 - 4
+
+#   12345678    0 - 1
+# abcd          2 - 3
+
+#    12345678   0 - 0
+# abcd          3 - 3
+
+# _lcs () {
+#     [ ${#1} -gt 1 -a ${#2} -gt 1 ] || return 1;
+#     local x y z=${#2} lcs=() suf=0 len=0;
+#
+#     z=`printf "1%.${#z}d"`;
+#
+#     for ((x=0; x<${#1}; x++)); do
+#         for ((y=0; y<${#2}; y++)); do
+#             [ "${1:$x:1}" == "${2:$y:1}" ] || continue;
+#             [ $x == 0 -o $y == 0 ] && \
+#                 lcs[$x * $z + $y]=1 || \
+#                 lcs[$x * $z + $y]=$((lcs[($x - 1) * $z + $y - 1] + 1));
+#
+#             if [ ${lcs[$x * $z + $y]} -gt $len ]; then
+#                 len=${lcs[$x * $z + $y]};
+#                 suf=$x;
+#             fi
+#         done
+#     done
+#
+#     printf %s "${1:$suf - $len + 1:$len}"
+#     # printf %s "$((suf - len + 1)) $len"
+#
+# }
+
+# Print longest common subsequence
+# Usage: _lcs [str1] [str2]
+_lcs () {
+    [ ${#1} -gt 1 -a ${#2} -gt 1 ] || return 1;
+    local i m n x y=0 len=0 pre=0 count sub stat=false;
+
+    for ((x=${#1} - 1; x>=-1 * ${#2} + 1; x--)); do
+        [ $x -ge 0 ] && m=$x n=0 || m=0 n=${x:1};
+        [ $y -ge ${#2} ] || ((++y));
+
+        sub=$m count=0;
+        for ((i=0; i<y-n; i++)); do
+            if [ "${1:m + i:1}" == "${2:n + i:1}" ]; then
+                $stat || sub=$((m + i)) count=0 stat=true;
+                ((++count));
+            else
+                stat=false;
+                [ $count -gt $len ] && pre=$sub len=$count;
+            fi
+        done
+        [ $count -gt $len ] && pre=$sub len=$count;
+    done
+
+    printf %s "${1:$pre:$len}"
+    # printf "$pre $len"
+}
+
+# Test match level
+# Usage: _lcs_match [str1] [str2]
+# Return: [0-9].[0-9]
+#         match = 1.{5,}; (V.A)
+_lcs_match () {
+
+    function __division () {
+        set $(($1 - $2));
+        [ $1 == 0 ] && printf 1 || printf $1
+    };
+
+    set "${1//[-_\{\[\(\)\]\} ]/}" "${2//[-_\{\[\(\)\]\} ]/}";
+    local i=${#1} j=${#2} z=`_lcs "$1" "$2"`;
+    z=${#z};
+    [ $z -gt $j -o $z -gt $i ] && return 1;
+    [ $i == 0 -o $j == 0 -o $z -le 1 ] && {
+        printf $((0x7FFFFFFFFFFFFFFF));
+        return 0;
+    };
+    printf $(( (i / z) * (j / z) ));
+    printf .$(( (i / `__division $i $z`) * (j / `__division $j $z`) ));
+    return 0
+}
