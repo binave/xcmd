@@ -339,17 +339,21 @@ case $1 in
     *)
         printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.
 
-usage: ${0##*/} [--dir|-d PATH[PATH...]] [option]
-    start   [--debug|-D [port]] start jar if not run.
-    stop    [-f]                stop jar process.
-    log     [lines|-[days]]     print last n lines and n days before log.
-    restart [--debug|-D [port]] restart jar process.
-    status                      show process info.
-    live                        start jar if not run,
-                                and logging live every 10 minutes.
-    redirect                    redirect stdout and stderr file
+usage: ${0##*/} [param...] [option] [args...]
 
-    --cron                      auto redirect log file every day.
+param:
+    -d | --dir   path [path...] [option]  batch run.
+    --cron       [path]                   auto redirect log file every day.
+
+option:
+    start   [-D|--debug [port]]     start jar if not run. (support debug)
+    stop    [-f]                    stop jar process. (can force stop)
+    log     [lines|-[days]]         print last n lines and n days before log.
+    restart [-D|--debug [port]]     restart jar process. (support debug)
+    status                          show process info.
+    live                            start jar if not run,
+                                    and logging live every 10 minutes.
+    redirect                        redirect stdout and stderr file
 
 config file:
     cat > \033[32m./startup.properties\033[0m <<-EOF\033[7m
@@ -366,6 +370,10 @@ JAVA_ARGS+=' -Xms1024m'
 \033[0mEOF
 
 e.g.
+    xjar -d .
+    xjar start -D 8081
+    xjar -d /var/run restart -D 8081
+    xjar stop -f
     ssh user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
     ssh user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
 
