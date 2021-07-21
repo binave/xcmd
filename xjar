@@ -339,13 +339,13 @@ case $1 in
     *)
         printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.
 
-usage: ${0##*/} [param...] [option] [args...]
+usage: ${0##*/} [param...] \033[1m[option]\033[0m [args...]
 
 param:
-    -d | --dir   path [path...] [option]  batch run.
+    -d | --dir   path [path...] \033[1m[option]\033[0m  batch run option.
     --cron       [path]                   auto redirect log file every day.
 
-option:
+\033[1moption\033[0m:
     start   [-D|--debug [port]]     start jar if not run. (support debug)
     stop    [-f]                    stop jar process. (can force stop)
     log     [lines|-[days]]         print last n lines and n days before log.
