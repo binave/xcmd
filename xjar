@@ -347,7 +347,7 @@ param:
 
 \033[1moption\033[0m:
     start   [-D|--debug [port]]     start jar if not run. (support debug)
-    stop    [-f]                    stop jar process. (can force stop)
+    stop    [-f]                    stop jar process. (force stop)
     log     [lines|-[days]]         print last n lines and n days before log.
     restart [-D|--debug [port]]     restart jar process. (support debug)
     status                          show process info.
@@ -374,8 +374,8 @@ e.g.
     xjar start -D 8081
     xjar -d /var/run restart -D 8081
     xjar stop -f
-    ssh user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
-    ssh user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
 
 " >&2
 
