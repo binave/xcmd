@@ -1557,6 +1557,7 @@ exit /b 0
     @REM add where conditions
     if "%~2" neq "" (
         set _DriveType=
+        :: https://docs.microsoft.com/zh-cn/dotnet/api/system.io.drivetype
         if /i "%~2"=="l" set _DriveType=3
         if /i "%~2"=="r" set _DriveType=5
         if /i "%~2"=="n" set _DriveType=4
@@ -1640,28 +1641,18 @@ exit /b 0
 
     set _removable_letter=
     if defined _tmp_letter (
-        for /f "usebackq tokens=1-3" %%a in (
-            `wmic.exe logicaldisk get DeviceID^,DriveType`
-        ) do if /i "%%a%%b"=="%_tmp_letter%2" set _removable_letter=%%a
+        for /f "usebackq skip=1 tokens=1" %%a in (`
+            wmic.exe logicaldisk where "DriveType=2" get DeviceID
+        `) do if /i "%%a"=="%_tmp_letter%" set _removable_letter=%%a
 
-    ) else for /f "usebackq tokens=1-4" %%a in (
-        `wmic.exe logicaldisk get Access^,DeviceID^,DriveType`
-    ) do if "%%a%%c"=="02" set _removable_letter=%%b
+    ) else for /f "usebackq skip=1 tokens=1,2" %%a in (`
+        wmic.exe logicaldisk where "Access=0 and DriveType=2" get Access^,DeviceID
+    `) do if "%%a"=="0" set _removable_letter=%%b
+    set _tmp_letter=
 
     if not defined _removable_letter exit /b 61 @REM removable drive not found or read-only
 
     >&3 echo find removable drives '%_removable_letter%'
-
-    2>nul mkdir %_removable_letter%\keys
-    set /a _suf=%random% %% 900 + 100
-    call :sub\time\--now _log %_removable_letter%\keys\key- %_suf%.log
-    >>%_log% (
-        echo.
-        echo =====================================================================================================
-        echo %date% %time%
-        echo.
-        call :sub\drv\--info
-    )
 
     call :regedit\on
     @REM get allow - gpedit.msc: Local Computer Policy - Computer Configuration - Administrative Templates - Windows Components - BitLocker Drive Encryption - Operating System Drives
@@ -1678,10 +1669,18 @@ exit /b 0
     >nul 2>nul reg.exe delete HKLM\System\CurrentControlSet\Policies\Microsoft\FVE ^
         /v RDVDenyWriteAccess /f && >&3 echo [WARN] Try to re insert removable drives
 
-    @REM start lock
+    ::: %_vol_c_info%
+    call :this\disk_serial_path
+
+    call :this\baseboard_serial_path _baseboard_info
+    call :sub\time\--now _now
+    set _baseboard_info=%_baseboard_info%\%_now:~0,-4%
+    set _now=
+
+    @REM loop start lock
     for /f "usebackq tokens=1-3" %%a in (
         `wmic.exe logicaldisk get DeviceID^,DriveType`
-    ) do if "%%b"=="3" >>%_log% (
+    ) do if "%%b"=="3" (
         if not exist %_removable_letter% (
             call :regedit\off
             exit /b 60 @REM Partition not found
@@ -1694,11 +1693,6 @@ exit /b 0
         )
     )
 
-    attrib.exe -s -h -r %_removable_letter%\*.bek
-    for /d %%a in (
-        %_removable_letter%\keys\*
-    ) do attrib.exe -s -h -r %%a\*.bek
-
     if "%~1" neq "--safe" if "%~1" neq "-s" goto :skip\deny_write_access
     call :oset\write_access\--deny
     :skip\deny_write_access
@@ -1709,28 +1703,44 @@ exit /b 0
     echo.
     exit /b 0
 
-::: "    --encrypts,       -ec   [letter:] [pw/vol]  Encrypts the volume by bitlocker"
+::: "    --encrypts,       -ec   [letter:] [[vol]]   Encrypts the volume by bitlocker"
 :sub\vol\--encrypts
 :sub\vol\-ec
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 74 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 70 @REM not support winpe
     if /i "%~1" neq "%~d1" exit /b 76 @REM target not a letter or not support
-    if "%~2"=="" exit /b 75 @REM args error
     if not exist "%~1" exit /b 78 @REM letter not found
     call :sub\vol\--crypts-status %~d1 && (
         echo [%~d1] already encrypts.
         exit /b 0
     )
 
-    if /i "%~2"=="%~d2" if exist "%~2" call :bitLocker\on\key %~d1 %~d2& goto :eof
-
-    manage-bde.exe -on %~d1 ^
+    if "%~2"=="" manage-bde.exe -on %~d1 ^
                 -UsedSpaceOnly ^
                 -Synchronous ^
-                -Password %~2 || exit /b 73 @REM manage-bde error
+                -Password || exit /b 73 @REM manage-bde error
+
+    if "%~2"=="" goto :eof
+
+    if /i "%~2" neq "%~d2" exit /b 77 @REM args not removable letter
+    if not exist "%~2" exit /b 79 @REM removable letter not exist
+
+    setlocal
+
+    ::: %_vol_c_info%
+    call :this\disk_serial_path
+
+    call :this\baseboard_serial_path _baseboard_info
+    call :sub\time\--now _now
+    set _baseboard_info=%_baseboard_info%\%_now:~0,-4%
+    set _now=
+
+    call :bitLocker\on\key %~d1 %~d2
+
+    endlocal
     goto :eof
 
-::: "    --decrypts,       -dc   [letter:/passwd]    Decrypts the volume"
+::: "    --decrypts,       -dc   [letter:]           Decrypts the volume"
 :sub\vol\--decrypts
 :sub\vol\-dc
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 84 @REM manage-bde feature not enable
@@ -1753,26 +1763,86 @@ exit /b 0
     >&3 echo Encryption [%~d1] ...
     title Encryption [%~d1] ...
 
-    setlocal
+    setlocal enabledelayedexpansion
     set _vol=%~d1
     set _vol=%_vol::=%
+    set _removable_letter=%~d2
     @REM call :test\tpm
-    set _arg=-StartupKey %~d2\
+    set _key_type=StartupKey
+    if /i "%~d1" neq "%SystemDrive%" set _key_type=RecoveryKey
+
+    set _key_name=
+    for /f "usebackq" %%a in (`
+        manage-bde.exe ^
+            -on %_vol%: ^
+            -UsedSpaceOnly ^
+            -EncryptionMethod xts_aes128 -%_key_type% %~d2\ ^
+            -SkipHardwareTest
+    `) do if /i "%%~xa"==".bek" set _key_name=%%~a
+
+    if not defined _key_name exit /b 83 @REM manage-bde error
+
+    attrib.exe -s -h -r %_removable_letter%\%_key_name%
+
+    for %%b in (
+        _vol_%_vol%_info
+    ) do set _key_dir=%_removable_letter%\externalkeys\%_baseboard_info%\!%%b!\%_vol%\
+
+    2>nul mkdir %_key_dir%
+
     if /i "%~d1" neq "%SystemDrive%" (
-        2>nul mkdir %~d2\keys\%_vol%
-        set _arg=-RecoveryKey %~d2\keys\%_vol%
-    )
+        move %_removable_letter%\%_key_name% %_key_dir%
+        call :sub\vol\--crypts-status %SystemDrive% && manage-bde.exe ^
+                                                        -autounlock ^
+                                                        -enable %_vol%: >nul || exit /b 83 @REM manage-bde error
 
-    manage-bde.exe ^
-        -on %_vol%: ^
-        -UsedSpaceOnly ^
-        -EncryptionMethod xts_aes128 %_arg% ^
-        -SkipHardwareTest || exit /b 83 @REM manage-bde error
-
-    if /i "%~d1" neq "%SystemDrive%" manage-bde.exe -autounlock -enable %_vol%: || exit /b 83 @REM manage-bde error
+    ) else copy %_removable_letter%\%_key_name% %_key_dir%
 
     endlocal
     exit /b 0
+
+:this\baseboard_serial_path [var_name]
+    :: baseboard info
+    for /f "usebackq tokens=1* delims==" %%a in (`
+        wmic.exe csproduct get Name^,UUID^,Vendor /value
+    `) do if "%%~b" neq "" call :this\set_and_joint #$_+\%%a %%b
+    set %~1=%#$_+\Vendor%\%#$_+\Name%\%#$_+\UUID%
+    call :sub\var\--unset #$_+
+    goto :eof
+
+::: %_vol_c_info%
+:this\disk_serial_path
+    for /f "usebackq tokens=1* delims==" %%a in (`
+        wmic.exe diskdrive where "InterfaceType='SCSI' or InterfaceType='IDE'" get Index^,Model^,SerialNumber /value
+    `) do if "%%~b" neq "" (
+        if "%%~a"=="Index" (
+            set /a %%~a=%%~b
+        ) else call :this\set_and_joint #$_+\!Index!\%%~a %%~b
+    )
+    set Index=
+
+    :: https://docs.microsoft.com/zh-cn/dotnet/api/system.io.drivetype
+    for /f "usebackq skip=1 tokens=1*" %%a in (`
+        wmic.exe logicaldisk where "DriveType=3" get DeviceID^,VolumeSerialNumber
+    `) do if "%%~b" neq "" for /f "usebackq tokens=1 delims=:" %%c in (
+        '%%a'
+    ) do call :this\set_and_joint #$_+\%%c\VolumeSerialNumber %%b
+
+    for /f usebackq^ skip^=1^ tokens^=2^,4^ delims^=^" %%a in (`
+        wmic.exe /namespace:\\root\cimv2 path Win32_LogicalDiskToPartition
+    `) do for /f "usebackq tokens=2,4,5 delims=,#:" %%c in (
+        '%%a^,%%b'
+    ) do set _vol_%%e_info=!#$_+\%%c\Model!\!#$_+\%%c\SerialNumber!\!#$_+\%%e\VolumeSerialNumber!
+    call :sub\var\--unset #$_+
+    goto :eof
+
+:this\set_and_joint
+    if "%~2"=="" set %~1=!%~1:.=!& goto :eof
+    if not defined %~1 (
+        set %~1=%~2
+    ) else set %~1=!%~1!_%~2
+    shift /2
+    goto set_and_joint
 
 ::: "    --crypts-status,  -cs   [letter:]           Provides information about BitLocker-capable volumes" "                            [[--more/-m]]       display more crypts info" "" "    --wipes,     -w   [letter:]                 Wipes the free space on the volume"
 :sub\vol\--crypts-status
@@ -3018,6 +3088,7 @@ exit /b 0
         ServerDatacenter_100_17134@2HXDN-KRXHB-GPYC7-YCKFJ-7FVDG
         ServerDatacenter_100_17763@WMDGN-G9PQG-XVVXX-R3X43-63DFG
         ServerDatacenter_100_18362@6NMRW-2C8FM-D24W7-TQWMY-CWH2D
+        ServerDatacenter_100_20348@WX4NM-KYWYW-QJJR4-XV3QB-6VM33
         ServerDatacenterACor_100@6NMRW-2C8FM-D24W7-TQWMY-CWH2D
 
         ServerEssentials_63@KNC87-3J2TX-XB4WP-VCPJV-M4FWM
@@ -3033,6 +3104,7 @@ exit /b 0
         ServerStandard_100_17134@PTXN8-JFHJM-4WC78-MPCBR-9W4KR
         ServerStandard_100_17763@N69g4-B89J2-4G8F4-WWYCC-J464C
         ServerStandard_100_18362@N2KJX-J94YW-TQVFB-DG9YT-724CC
+        ServerStandard_100_20348@VDYBN-27WPP-V4HQT-9VMD4-VMK7H
         ServerStandardACor_100@N2KJX-J94YW-TQVFB-DG9YT-724CC
     ) do for /f "usebackq tokens=1* delims=@" %%a in (
         '%%~k'

@@ -13,6 +13,57 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+__xj_help() {
+
+        printf "
+usage: ${0##*/} [param...] \033[1m[option]\033[0m [args...]
+
+param:
+    -d | --dir   path [path...] \033[1m[option]\033[0m  batch run option.
+    --cron       [path]                   auto redirect log file every day.
+
+\033[1moption\033[0m:
+    start   [-D|--debug [port]]     start jar if not run. (support debug)
+    stop    [-f]                    stop jar process. (force stop)
+    log     [lines|-[days]]         print last n lines and n days before log.
+    restart [-D|--debug [port]]     restart jar process. (support debug)
+    status                          show process info.
+    live                            start jar if not run,
+                                    and logging live every 10 minutes.
+    redirect                        redirect stdout and stderr file
+
+config file:
+    cat > \033[32m./.xjar_conf\033[0m <<-EOF\033[7m
+# JAR_LOG_DIR=/var/log/java/xxx/console; # Deprecated
+JAR_LOG_DIR_PRE=/var/log/java;
+JAR_LOG_DIR_SUF=/console;
+# LOG_PREFIX='%%F %%T,'
+
+LIVE_LOG_DIR=/var/log/xjar-live;
+
+DEBUG_PORT=9000;
+
+# MAIN_CLASS_PATH='java.util.prefs.Base64'
+
+JAR_ARGS=' --config.location=./application.yml'
+JAR_ARGS+=' --prefix=/xxx'
+
+JAVA_ARGS=' -Xmx1024m'
+JAVA_ARGS+=' -Xms1024m'
+\033[0mEOF
+
+e.g.
+    xjar -d .
+    xjar start -D 8081
+    xjar -d /var/run restart -D 8081
+    xjar stop -f
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
+
+" >&2
+
+}
+
 __xj_unset() {
     # clear environment variables
     unset $(set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}')
@@ -90,19 +141,24 @@ __xj_main() {
 }
 
 __xj_unset;
-[ -s "startup.properties" ] && \
-    eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "export XJ_" $1}' "startup.properties");
+[ -s ".xjar_conf" ] && \
+    eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "export XJ_" $1}' ".xjar_conf");
 eval $(set | awk '/^[A-Z_]+=[^(][^*]{,128}$/{print "export XJ_" $0}');
 
 if [ "$XJ_JAR_LOG_DIR" ]; then
     :
 elif [ "$XJ_JAR_LOG_DIR_PRE" ]; then
     XJ_JAR_LOG_DIR="${XJ_JAR_LOG_DIR_PRE%/}/${PWD##*/}/${XJ_JAR_LOG_DIR_SUF#/}";
-    XJ_JAR_LOG_DIR="${XJ_JAR_LOG_DIR%/}";
 else
-    XJ_JAR_LOG_DIR="$PWD/logs"
+    if [ "$XJ_JAR_LOG_DIR_SUF" ]; then
+        XJ_JAR_LOG_DIR="/var/log/java/${PWD##*/}/${XJ_JAR_LOG_DIR_SUF#/}"
+    else
+        XJ_JAR_LOG_DIR="/var/log/java/${PWD##*/}/console"
+    fi
 fi
-: ${XJ_LIVE_LOG_DIR:="${XJ_JAR_LOG_DIR%/*}"};
+XJ_JAR_LOG_DIR="${XJ_JAR_LOG_DIR%/}";
+
+: ${XJ_LIVE_LOG_DIR:='/var/log/xjar-live'};
 
 for xj_jar_path in "$PWD/"*.jar; do :; done
 xj_jar_path="${xj_jar_path/*\**/}"; # jar file not found
@@ -118,7 +174,7 @@ xj_jar_path="${xj_jar_path/'-src.'/.}";
     [ "$XJ_LOG_PREFIX" ] && {
         # man date
         [ "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%[A-DF-IMNPR-Za-eghj-npr-z]/}" -a "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%-[A-DF-IMNPR-Za-eghj-npr-z]/}" ] && {
-            printf "[\033[1;31mERROR\033[0m] \033[1mLOG_PREFIX\033[0m invalid option: '\033[33m%s\033[0m' in '\033[32m%s\033[0m'\n" "$XJ_LOG_PREFIX" "startup.properties" >&2;
+            printf "[\033[1;31mERROR\033[0m] \033[1mLOG_PREFIX\033[0m invalid option: '\033[33m%s\033[0m' in '\033[32m%s\033[0m'\n" "$XJ_LOG_PREFIX" ".xjar_conf" >&2;
             exit 1
 
         };
@@ -152,6 +208,7 @@ case $1 in
             ;;
             *)
                 printf "[\033[1;31mERROR\033[0m] Invalid option: start '\033[33m%s\033[0m'\n" "$1" >&2;
+                __xj_help;
                 exit 1
 
             ;;
@@ -160,7 +217,12 @@ case $1 in
         mkdir -pv $XJ_JAR_LOG_DIR;
         # echo "$@" > "$xj_args_file";
         xj_jar_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-        set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+
+        if [ "$XJ_MAIN_CLASS_PATH" ]; then
+            set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+        else
+            set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+        fi
 
         if [ "$xj_jar_log_prefix" ]; then
             __xj_main "$@" | awk '{print '"${xj_jar_log_prefix}"';fflush(stdout)}' >> "$xj_jar_log_file" &
@@ -305,7 +367,7 @@ case $1 in
                 unset __dir__ __sh__;
                 bash "$0" "$@"
             )
-        done < <(find "${__dir__[@]}" -type f -name startup.properties);
+        done < <(find "${__dir__[@]}" -type f -name .xjar_conf);
         unset __dir__ __sh__
 
     ;;
@@ -337,47 +399,7 @@ case $1 in
         crontab -l
     ;;
     *)
-        printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.
-
-usage: ${0##*/} [param...] \033[1m[option]\033[0m [args...]
-
-param:
-    -d | --dir   path [path...] \033[1m[option]\033[0m  batch run option.
-    --cron       [path]                   auto redirect log file every day.
-
-\033[1moption\033[0m:
-    start   [-D|--debug [port]]     start jar if not run. (support debug)
-    stop    [-f]                    stop jar process. (force stop)
-    log     [lines|-[days]]         print last n lines and n days before log.
-    restart [-D|--debug [port]]     restart jar process. (support debug)
-    status                          show process info.
-    live                            start jar if not run,
-                                    and logging live every 10 minutes.
-    redirect                        redirect stdout and stderr file
-
-config file:
-    cat > \033[32m./startup.properties\033[0m <<-EOF\033[7m
-# JAR_LOG_DIR=/var/log/xxx/console; # Deprecated
-JAR_LOG_DIR_PRE=/var/log;
-JAR_LOG_DIR_SUF=/console;
-# LOG_PREFIX='%%F %%T,'
-LIVE_LOG_DIR=/var/log/live;
-DEBUG_PORT=9000;
-JAR_ARGS=' --config.location=./application.yml'
-JAR_ARGS+=' --prefix=/xxx'
-JAVA_ARGS=' -Xmx1024m'
-JAVA_ARGS+=' -Xms1024m'
-\033[0mEOF
-
-e.g.
-    xjar -d .
-    xjar start -D 8081
-    xjar -d /var/run restart -D 8081
-    xjar stop -f
-    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
-    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
-
-" >&2
-
+        printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.\n" >&2;
+        __xj_help
     ;;
 esac
