@@ -21,6 +21,7 @@ usage: ${0##*/} [param...] \033[1m[option]\033[0m [args...]
 param:
     -d | --dir   path [path...] \033[1m[option]\033[0m  batch run option.
     --cron       [path]                   auto redirect log file every day.
+    -h | --help                           print full help info.
 
 \033[1moption\033[0m:
     start   [-D|--debug [port]]     start jar if not run. (support debug)
@@ -31,26 +32,6 @@ param:
     live                            start jar if not run,
                                     and logging live every 10 minutes.
     redirect                        redirect stdout and stderr file
-
-config file:
-    cat > \033[32m./.xjar_conf\033[0m <<-EOF\033[7m
-# JAR_LOG_DIR=/var/log/java/xxx/console; # Deprecated
-JAR_LOG_DIR_PRE=/var/log/java;
-JAR_LOG_DIR_SUF=/console;
-# LOG_PREFIX='%%F %%T,'
-
-LIVE_LOG_DIR=/var/log/xjar-live;
-
-DEBUG_PORT=9000;
-
-# MAIN_CLASS_PATH='java.util.prefs.Base64'
-
-JAR_ARGS=' --config.location=./application.yml'
-JAR_ARGS+=' --prefix=/xxx'
-
-JAVA_ARGS=' -Xmx1024m'
-JAVA_ARGS+=' -Xms1024m'
-\033[0mEOF
 
 e.g.
     xjar -d .
@@ -140,9 +121,16 @@ __xj_main() {
     )
 }
 
+__xj_load_config() {
+    [ -s "$1" ] && eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "export XJ_" $1}' "$1");
+}
+
+: ${XJ_LOCAL_XJAR_CONFIG_NAME:='.xjarconf'}
+
 __xj_unset;
-[ -s ".xjar_conf" ] && \
-    eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print "export XJ_" $1}' ".xjar_conf");
+__xj_load_config /etc/xjar.conf;
+__xj_load_config $HOME/.xjarc;
+__xj_load_config $XJ_LOCAL_XJAR_CONFIG_NAME;
 eval $(set | awk '/^[A-Z_]+=[^(][^*]{,128}$/{print "export XJ_" $0}');
 
 if [ "$XJ_JAR_LOG_DIR" ]; then
@@ -174,7 +162,7 @@ xj_jar_path="${xj_jar_path/'-src.'/.}";
     [ "$XJ_LOG_PREFIX" ] && {
         # man date
         [ "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%[A-DF-IMNPR-Za-eghj-npr-z]/}" -a "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%-[A-DF-IMNPR-Za-eghj-npr-z]/}" ] && {
-            printf "[\033[1;31mERROR\033[0m] \033[1mLOG_PREFIX\033[0m invalid option: '\033[33m%s\033[0m' in '\033[32m%s\033[0m'\n" "$XJ_LOG_PREFIX" ".xjar_conf" >&2;
+            printf "[\033[1;31mERROR\033[0m] \033[1mLOG_PREFIX\033[0m invalid option: '\033[33m%s\033[0m' in '\033[32m%s\033[0m'\n" "$XJ_LOG_PREFIX" "$XJ_LOCAL_XJAR_CONFIG_NAME" >&2;
             exit 1
 
         };
@@ -295,12 +283,12 @@ case $1 in
         __xj_test_workspace;
         __xj_test_single_process;
         if [ "$xj_java_pid" ]; then
-            printf "name:\033[1m%-26s\033[0m pid:\033[1m%-6s\033[0m %-23s" $xj_jar_name, $xj_java_pid, \
+            printf "name:\033[1m%-26s\033[0m pid:\033[1m%-6s\033[0m %-23s" ${PWD##*/}, $xj_java_pid, \
             $(which netstat >/dev/null 2>&1 && netstat -lnp 2>/dev/null | awk '/[^0-9]'$xj_java_pid'\/java/{if(!e++) printf " port:"; sub(/.*:/, "", $4); sub(/[46]$/, "", $1); printf "\033[1m%s/%s\033[0m,", $4, $1}');
             top -b -n 1 -p$xj_java_pid | tac | awk '{if($0 ~ /^KiB Mem/){printf " (\033[1m%.2f\033[0m/\033[1m%.0f\033[0mg)\n", ($8/1024/1024), ($4/1024/1024)} else if($0 ~ /java/){b[""]=1;b["m"]=1024;b["g"]=(1024*1024);s=$6;sub(/[gm]/, "", $6);sub(/[0-9\.]+/, "", s);printf " cpu:\033[1m%-6s\033[0m mem:\033[1m%-8s\033[0m", $9 "%,", sprintf("%.2f", $6*b[s]/1024/1024) "g" }}';
 
         else
-            printf "name:\033[1m%-26s\033[0m inactive (\033[31mdead\033[0m).\n" $xj_jar_name, >&2;
+            printf "name:\033[1m%-26s\033[0m inactive (\033[31mdead\033[0m).\n" ${PWD##*/}, >&2;
             exit 1
         fi
 
@@ -361,15 +349,18 @@ case $1 in
         __args__=$(awk -F \) '/^[[:space:]]*[A-Za-z|-]+)/{gsub(/\|/, " ", $1); printf " %s ", $1}' "$0");
         # make sure path exist and not match case
         while [ -d "$1" -a "${__args__/ $1 /}" == "$__args__" ]; do __dir__[${#__dir__[@]}]="$1"; shift; done
-        unset __args__;
+        unset __args__ xj_run;
         export TEAMCITY_VERSION=none HISTCONTROL=;
         while read __sh__; do
             (
                 cd "`dirname "$__sh__"`";
                 unset __dir__ __sh__;
-                bash "$0" "$@"
+                bash "$0" "$@";
             )
-        done < <(find "${__dir__[@]}" -type f -name .xjar_conf);
+            xj_run=true
+        done < <(find "${__dir__[@]}" -maxdepth ${XJ_MAX_DEPTH:-2} -type f -name $XJ_LOCAL_XJAR_CONFIG_NAME);
+        [ "$xj_run" ] || \
+            printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' no $XJ_LOCAL_XJAR_CONFIG_NAME found, find depth is ${XJ_MAX_DEPTH:-2}.\n" $1 >&2;
         unset __dir__ __sh__
 
     ;;
@@ -402,6 +393,37 @@ case $1 in
 
         fi
         crontab -l
+    ;;
+    -h|--help)
+    __xj_help;
+printf "
+
+Globle config:
+    cat > \033[32m/etc/xjar.conf\033[0m <<-EOF\033[7m
+MAX_DEPTH=2;
+# LOCAL_XJAR_CONFIG_NAME=.xjarconf
+JAVA_ARGS=' -Xmx1024m'
+JAVA_ARGS+=' -Xms1024m'
+\033[0mEOF
+
+User config:
+    cat > \033[32m$HOME/.xjarc\033[0m <<-EOF\033[7m
+JAR_LOG_DIR_PRE=/var/log/java;
+JAR_LOG_DIR_SUF=/console;
+LIVE_LOG_DIR=/var/log/xjar-live;
+JAR_ARGS=' --config.location=./application.yml'
+\033[0mEOF
+
+Local config:
+    cat > \033[32m.xjarconf\033[0m <<-EOF\033[7m
+# JAR_LOG_DIR=/var/log/java/xxx/console; # Deprecated
+# LOG_PREFIX='%%F %%T,'
+DEBUG_PORT=9000;
+# MAIN_CLASS_PATH='java.util.prefs.Base64'
+JAR_ARGS=' --prefix=/xxx'
+\033[0mEOF
+
+" >&2
     ;;
     *)
         printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.\n" >&2;

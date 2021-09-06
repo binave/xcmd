@@ -1792,6 +1792,7 @@ exit /b 0
 
     if /i "%~d1" neq "%SystemDrive%" (
         move %_removable_letter%\%_key_name% %_key_dir%
+        :: if %SystemDrive% Encrypted, enable autounlock
         call :sub\vol\--crypts-status %SystemDrive% && manage-bde.exe ^
                                                         -autounlock ^
                                                         -enable %_vol%: >nul || exit /b 83 @REM manage-bde error
@@ -1856,7 +1857,17 @@ exit /b 0
     exit /b 0
     :skip\show_crypts_status
 
-    >nul manage-bde.exe -status %~d1 -ProtectionAsErrorLevel && exit /b 0
+    @REM :: Encrypted complete return true
+    @REM >nul manage-bde.exe -status %~d1 -ProtectionAsErrorLevel && exit /b 0
+    for /f "usebackq tokens=2*" %%a in (`
+        manage-bde.exe -status %~d1
+    `) do (
+        if "%%b"=="2.0" exit /b 0
+        if /i "%%b"=="AES 128" exit /b 0
+        if /i "%%b"=="AES 256" exit /b 0
+        if /i "%%b"=="XTS-AES 128" exit /b 0
+        if /i "%%b"=="XTS-AES 256" exit /b 0
+    )
     exit /b -1
 
 @REM Trusted Platform Module (TPM)
