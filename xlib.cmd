@@ -1807,18 +1807,19 @@ exit /b 0
     :: baseboard info
     for /f "usebackq tokens=1* delims==" %%a in (`
         wmic.exe csproduct get Name^,UUID^,Vendor /value
-    `) do if "%%~b" neq "" call :this\set_and_joint #$_+\%%a %%b
+    `) do if "%%~b" neq "" call :this\joint_serial #$_+\%%a %%b
     endlocal & set %~1=%#$_+\Vendor%\%#$_+\Name%\%#$_+\UUID%
     goto :eof
 
 ::: %_vol_c_info%
 :this\disk_serial_path
+    setlocal enabledelayedexpansion
     for /f "usebackq tokens=1* delims==" %%a in (`
         wmic.exe diskdrive where "InterfaceType='SCSI' or InterfaceType='IDE'" get Index^,Model^,SerialNumber /value
     `) do if "%%~b" neq "" (
         if "%%~a"=="Index" (
             set /a %%~a=%%~b
-        ) else call :this\set_and_joint #$_+\!Index!\%%~a %%~b
+        ) else call :this\joint_serial #$_+\!Index!\%%~a %%~b
     )
     set Index=
 
@@ -1827,25 +1828,27 @@ exit /b 0
         wmic.exe logicaldisk where "DriveType=3" get DeviceID^,VolumeSerialNumber
     `) do if "%%~b" neq "" for /f "usebackq tokens=1 delims=:" %%c in (
         '%%a'
-    ) do call :this\set_and_joint #$_+\%%c\VolumeSerialNumber %%b
+    ) do call :this\joint_serial #$_+\%%c\VolumeSerialNumber %%b
 
+    set _vars=
     for /f usebackq^ skip^=1^ tokens^=2^,4^ delims^=^" %%a in (`
         wmic.exe /namespace:\\root\cimv2 path Win32_LogicalDiskToPartition
     `) do for /f "usebackq tokens=2,4,5 delims=,#:" %%c in (
         '%%a^,%%b'
-    ) do set _vol_%%e_info=!#$_+\%%c\Model!\!#$_+\%%c\SerialNumber!\!#$_+\%%e\VolumeSerialNumber!
-    call :sub\var\--unset #$_+
+    ) do if defined #$_+\%%c\Model set _vars=!_vars! "_vol_%%e_info=!#$_+\%%c\Model!\!#$_+\%%c\SerialNumber!\!#$_+\%%e\VolumeSerialNumber!"
+
+    endlocal & for %%a in (%_vars%) do set %%~a
     goto :eof
 
-:this\set_and_joint
+:this\joint_serial
     if "%~2"=="" set %~1=!%~1:.=!& goto :eof
     for %%a in (
         Inc Co Ltd LLC Corp
-    ) do if /i "%~2"=="%%a." shift /2 & goto this\set_and_joint
+    ) do if /i "%~2"=="%%a." shift /2 & goto this\joint_serial
     if not defined %~1 (
         set %~1=%~2
     ) else set %~1=!%~1!_%~2
-    shift /2 & goto this\set_and_joint
+    shift /2 & goto this\joint_serial
 
 ::: "    --crypts-status,  -cs   [letter:]           Provides information about BitLocker-capable volumes" "                            [[--more/-m]]       display more crypts info" "" "    --wipes,     -w   [letter:]                 Wipes the free space on the volume"
 :sub\vol\--crypts-status
