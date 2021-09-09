@@ -191,8 +191,7 @@ case $1 in
 
                 };
 
-                XJ_JAVA_ARGS+=" -Xdebug";
-                XJ_JAVA_ARGS+=" -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=$xj_port";
+                XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=$xj_port";
                 unset xj_port
 
             ;;

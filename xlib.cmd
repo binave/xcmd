@@ -1803,12 +1803,12 @@ exit /b 0
     exit /b 0
 
 :this\baseboard_serial_path [var_name]
+    setlocal enabledelayedexpansion
     :: baseboard info
     for /f "usebackq tokens=1* delims==" %%a in (`
         wmic.exe csproduct get Name^,UUID^,Vendor /value
     `) do if "%%~b" neq "" call :this\set_and_joint #$_+\%%a %%b
-    set %~1=%#$_+\Vendor%\%#$_+\Name%\%#$_+\UUID%
-    call :sub\var\--unset #$_+
+    endlocal & set %~1=%#$_+\Vendor%\%#$_+\Name%\%#$_+\UUID%
     goto :eof
 
 ::: %_vol_c_info%
@@ -1839,11 +1839,13 @@ exit /b 0
 
 :this\set_and_joint
     if "%~2"=="" set %~1=!%~1:.=!& goto :eof
+    for %%a in (
+        Inc Co Ltd LLC Corp
+    ) do if /i "%~2"=="%%a." shift /2 & goto this\set_and_joint
     if not defined %~1 (
         set %~1=%~2
     ) else set %~1=!%~1!_%~2
-    shift /2
-    goto set_and_joint
+    shift /2 & goto this\set_and_joint
 
 ::: "    --crypts-status,  -cs   [letter:]           Provides information about BitLocker-capable volumes" "                            [[--more/-m]]       display more crypts info" "" "    --wipes,     -w   [letter:]                 Wipes the free space on the volume"
 :sub\vol\--crypts-status
@@ -3424,9 +3426,19 @@ exit /b 0
     @REM Version 16.0.13231.20368
     @REM Version 16.0.13328.20292
     @REM Version 16.0.13426.20308
+    @REM Version 16.0.13426.20352
+    @REM Version 16.0.13530.20334
+    @REM Version 16.0.13628.20246
+    @REM Version 16.0.13628.20462
+    @REM Version 16.0.13801.20340
+    @REM Version 16.0.13901.20328
+    @REM Version 16.0.13929.20238
+    @REM Version 16.0.14026.20252
+    @REM Version 16.0.14026.20306
+    @REM Version 16.0.14131.20278
 
     call :xlib\download ^
-            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_13426-20308.exe ^
+            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_14131-20278.exe ^
             %temp%\%~1\officedeploymenttool16.exe || exit /b 1
 
     %temp%\%~1\officedeploymenttool16.exe /extract:%temp%\%~1 /quiet || exit /b 1
