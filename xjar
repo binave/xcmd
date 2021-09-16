@@ -374,8 +374,8 @@ case $1 in
         };
         xj_cron_expression="0 0 * * * $SHELL $0 -d ${1%/} redirect";
         xj_cron_text=$(crontab -l 2>/dev/null);
-        xj_cron_text_trim=$(crontab -l 2>/dev/null | awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}');
-        if [ "$xj_cron_text_trim" ]; then
+        if [ "$xj_cron_text" ]; then
+            xj_cron_text_trim=$(awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}' <<< "$xj_cron_text");
             if [ "${xj_cron_text_trim/$xj_cron_expression/}" == "$xj_cron_text_trim" ]; then
                 printf '%s\n%s\n' "$xj_cron_text" "$xj_cron_expression" | crontab -
             fi
@@ -392,6 +392,7 @@ case $1 in
 
         fi
         crontab -l
+
     ;;
     -h|--help)
     __xj_help;
