@@ -47,7 +47,7 @@ e.g.
 
 __xj_unset() {
     # clear environment variables
-    unset $(set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}')
+    unset CLASSPATH JAVA_HOME $(set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}')
 }
 
 __xj_redirect() {
@@ -132,6 +132,7 @@ __xj_load_config /etc/xjar.conf;
 __xj_load_config $HOME/.xjarc;
 __xj_load_config $XJ_LOCAL_XJAR_CONFIG_NAME;
 eval $(set | awk '/^[A-Z_]+=[^(][^*]{,128}$/{print "export XJ_" $0}');
+[ -e "${XJ_JAVA_BIN_DIR%/}/java" ] && export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH;
 
 if [ "$XJ_JAR_LOG_DIR" ]; then
     :
@@ -412,6 +413,7 @@ JAR_LOG_DIR_PRE=/var/log/java;
 JAR_LOG_DIR_SUF=/console;
 LIVE_LOG_DIR=/var/log/xjar-live;
 JAR_ARGS=' --config.location=./application.yml'
+# JAVA_BIN_DIR=/usr/lib/jvm/openjdk-8/bin
 \033[0mEOF
 
 Local config:
