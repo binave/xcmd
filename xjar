@@ -192,8 +192,21 @@ case $1 in
 
                 };
 
-                XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=$xj_port";
-                unset xj_port
+                xj_java_main_version=$(java -version 2>&1 | awk -F '[[:space:]".]' '/version/{print $4 * 1000 + $5}');
+                if [ $xj_java_main_version -lt 1005 ]; then
+                    XJ_JAVA_ARGS+=" -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=$xj_port";
+
+                elif [ $xj_java_main_version -gt 1008 ]; then
+                    XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$xj_port";
+
+                else
+                    XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=$xj_port";
+
+                fi
+
+                # jdb -connect com.sun.jdi.SocketAttach:hostname=127.0.0.1,port=$xj_port
+
+                unset xj_java_main_version xj_port
 
             ;;
             *)
