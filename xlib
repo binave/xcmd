@@ -264,6 +264,31 @@ __get_pkg () {
     wait
 }
 
+### Wake on LAN ##Usage: wol [MAC_addr] [broadcast_ipv4] ##    e.g. #        wol aa:bb:cc:dd:ee:ff 10.0.0.255 ##
+_xlib_wol () {
+    [ "$1" ] || exit 1; # MAC addr is empty
+    [ "$2" ] || exit 1; # broadcast ip is empty
+
+    if which perl >/dev/null && [ "${SHELL##*/}" == "bash" ]; then
+        printf $(
+            {
+                printf 'f%.0s' {1..12};
+                printf "${1//[:-]/}%.0s" {1..16};
+            } | sed 's/../\\x&/g'
+        ) | perl -ne 'use Socket; socket(S, AF_INET, SOCK_DGRAM, getprotobyname("udp")); setsockopt(S, SOL_SOCKET, SO_BROADCAST, 1); send(S, $_, 0, pack_sockaddr_in(9, inet_aton("'"$2"'"))); close S' || \
+            exit 1; # perl error
+
+    elif which python >/dev/null; then
+        python -c 'import socket; S=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); S.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1); S.sendto("".join(["F" * 12, "'"$1"'".replace(":", "").replace("-", "") * 16]).decode("hex"), ("'"$2"'", 9))' || \
+            exit 1; # python error
+
+    else
+        exit 1; # not support
+
+    fi
+
+}
+
 ### Remote tools ##Usage: remote [option] [args...] ##    -ed25519 [[user@]host] [[alias]]  Copy ed25519 public key to remote #    -tar [option] [[user@host:]target_path] [[user@host:]source_path] #                                  remote tar command #    -scp [pass_word] [command...] Auto scp with password ##
 _xlib_remote () {
     case $1 in
