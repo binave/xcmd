@@ -938,6 +938,17 @@ exit /b 0
     :: net.exe start msiserver
     exit /b 0
 
+::: "    --open-winrm,     -ow  [-c]                   Open winrm at client or server."
+:sub\oset\--open-winrm
+:sub\oset\--ow
+    ::: server and client
+    call winrm.cmd quickconfig -force
+    if "%~1" neq "-c" goto :eof
+    ::: client only
+    call winrm.cmd set winrm/config/service @{AllowUnencrypted="true"}
+    call winrm.cmd set winrm/config/client @{TrustedHosts="*"}
+    exit /b 0
+
 ::: "    --srv-desktop,    -sd                         Convert windows server at desktop setting." "                                                  [DANGER!] This is an irreversible operation"
 :sub\oset\--srv-desktop
 :sub\oset\-sd
@@ -950,6 +961,10 @@ exit /b 0
     SecEdit.exe /export /cfg %windir%\Setup\hisecws.inf~ /log %windir%\Temp\hisecws.log
     >%windir%\Setup\hisecws.inf call :sub\txt\--subtxt "%~f0" hisecws.inf 4300
     SecEdit.exe /configure /db %windir%\Setup\hisecws.sdb /cfg %windir%\Setup\hisecws.inf /log %windir%\Temp\hisecws.log /quiet
+
+    @REM powercfg.exe /hibernate off
+    powercfg.exe /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+
     sc.exe start Audiosrv
     sc.exe config Audiosrv start= auto
     exit /b 0
@@ -4542,10 +4557,13 @@ exit /b 0
     ::hisecws.inf:
     ::hisecws.inf:[System Access]
     ::hisecws.inf:MaximumPasswordAge = -1
-    ::hisecws.inf:PasswordComplexity = 0
+    ::hisecws.inf:MinimumPasswordLength = 7
+    ::hisecws.inf:PasswordComplexity = 1
     ::hisecws.inf:
     ::hisecws.inf:[Registry Values]
     ::hisecws.inf:MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\DisableCAD=4,1
+    ::hisecws.inf:MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\DontDisplayLastUserName=4,1
+    ::hisecws.inf:MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\DontDisplayUserName=4,1
     ::hisecws.inf:MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoDriveTypeAutoRun=4,255
     ::hisecws.inf:MACHINE\Software\Policies\Microsoft\Windows NT\Reliability\**del.ShutdownReasonUI=1,""
     ::hisecws.inf:MACHINE\Software\Policies\Microsoft\Windows NT\Reliability\ShutdownReasonOn=4,0
@@ -4555,8 +4573,14 @@ exit /b 0
     ::hisecws.inf:;MACHINE\Software\Policies\Microsoft\FVE\UseTPMPIN=4,0
     ::hisecws.inf:;MACHINE\Software\Policies\Microsoft\FVE\UseTPMKey=4,2
     ::hisecws.inf:;MACHINE\Software\Policies\Microsoft\FVE\UseTPMKeyPIN=4,0
+    ::hisecws.inf:MACHINE\System\CurrentControlSet\Control\Lsa\RestrictAnonymous=4,1
+    ::hisecws.inf:MACHINE\System\CurrentControlSet\Control\Lsa\RestrictAnonymousSAM=4,1
     ::hisecws.inf:User\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoThumbnailCache=4,1
     ::hisecws.inf:User\Software\Policies\Microsoft\Windows\Explorer\DisableThumbsDBOnNetworkFolders=4,1
+    ::hisecws.inf:
+    ::hisecws.inf:;[Privilege Rights]
+    ::hisecws.inf:;SeDenyRemoteInteractiveLogonRight = Administrator
+    ::hisecws.inf:;SeRemoteInteractiveLogonRight = *S-1-5-32-555
     ::hisecws.inf:
     ::hisecws.inf:[Version]
     ::hisecws.inf:signature="$CHICAGO$"
