@@ -960,6 +960,7 @@ exit /b 0
     if "%~1" neq "-f" if "%~1" neq "--force" if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
     endlocal
 
+    net.exe localgroup "Remote Desktop Users" %username% /add
     SecEdit.exe /export /cfg %windir%\Setup\hisecws.inf~ /log %windir%\Temp\hisecws.log
     >%windir%\Setup\hisecws.inf call :sub\txt\--subtxt "%~f0" hisecws.inf 4300
     SecEdit.exe /configure /db %windir%\Setup\hisecws.sdb /cfg %windir%\Setup\hisecws.inf /log %windir%\Temp\hisecws.log /quiet
