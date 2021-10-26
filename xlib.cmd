@@ -4581,9 +4581,9 @@ exit /b 0
     ::hisecws.inf:User\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\NoThumbnailCache=4,1
     ::hisecws.inf:User\Software\Policies\Microsoft\Windows\Explorer\DisableThumbsDBOnNetworkFolders=4,1
     ::hisecws.inf:
-    ::hisecws.inf:;[Privilege Rights]
+    ::hisecws.inf:[Privilege Rights]
     ::hisecws.inf:;SeDenyRemoteInteractiveLogonRight = Administrator
-    ::hisecws.inf:;SeRemoteInteractiveLogonRight = *S-1-5-32-555
+    ::hisecws.inf:SeRemoteInteractiveLogonRight = *S-1-5-32-555
     ::hisecws.inf:
     ::hisecws.inf:[Version]
     ::hisecws.inf:signature="$CHICAGO$"
