@@ -938,29 +938,32 @@ exit /b 0
     :: net.exe start msiserver
     exit /b 0
 
-::: "    --open-winrm,     -ow  [-c]                   Open winrm at client or server."
+::: "    --open-winrm,     -ow  [--client/-c]          Open winrm at client or server."
 :sub\oset\--open-winrm
 :sub\oset\--ow
     ::: server and client
     call winrm.cmd quickconfig -force
-    if "%~1" neq "-c" goto :eof
+    if "%~1" neq "-c" if "%~1" neq "--client" goto :eof
     ::: client only
     call winrm.cmd set winrm/config/service @{AllowUnencrypted="true"}
     call winrm.cmd set winrm/config/client @{TrustedHosts="*"}
     exit /b 0
 
-::: "    --srv-desktop,    -sd                         Convert windows server at desktop setting." "                                                  [DANGER!] This is an irreversible operation"
-:sub\oset\--srv-desktop
-:sub\oset\-sd
+::: "    --desktop-style,  -ds  [--force/-f]           Convert windows server at desktop setting." "                                                  [DANGER!] This is an irreversible operation"
+:sub\oset\--desktop-style
+:sub\oset\-ds
+    setlocal
     set _editionid=
     for /f "usebackq tokens=3" %%a in (
         `reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID`
     ) do set _editionid=%%a
-    if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
+    if "%~1" neq "-f" if "%~1" neq "--force" if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
+    endlocal
 
     SecEdit.exe /export /cfg %windir%\Setup\hisecws.inf~ /log %windir%\Temp\hisecws.log
     >%windir%\Setup\hisecws.inf call :sub\txt\--subtxt "%~f0" hisecws.inf 4300
     SecEdit.exe /configure /db %windir%\Setup\hisecws.sdb /cfg %windir%\Setup\hisecws.inf /log %windir%\Temp\hisecws.log /quiet
+    gpupdate.exe /force
 
     @REM powercfg.exe /hibernate off
     powercfg.exe /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
