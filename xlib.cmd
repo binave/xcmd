@@ -1355,11 +1355,12 @@ exit /b 0
     >&3 echo complete.
     exit /b 0
 
-::: "    --drop-rdp                                    Remove remote desktop config by user name"
-:sub\oset\--drop-rdp
-    if "%~1"=="" exit /b 152 @REM Parameter is empty or Not a float
+::: "    --clear-rdc,      -cr                         Clear 'mstsc.exe' config by 'Computer' name"
+:sub\oset\--clear-rdc
+:sub\oset\-cr
+    if "%~1"=="" exit /b 152 @REM computer name is empty
     for /f "usebackq tokens=1-3" %%a in (`
-        reg.exe query "HKCU\Software\Microsoft\Terminal Server Client\Default"
+        2^>nul reg.exe query "HKCU\Software\Microsoft\Terminal Server Client\Default"
     `) do if "%%b"=="REG_SZ" if /i "%%c"=="%~1" reg.exe delete ^
         "HKCU\Software\Microsoft\Terminal Server Client\Default" /v %%a /f
     exit /b 0
