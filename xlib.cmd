@@ -958,12 +958,19 @@ exit /b 0
         `reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID`
     ) do set _editionid=%%a
     if "%~1" neq "-f" if "%~1" neq "--force" if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
+
+    ::: if login
+    for /f "usebackq skip=1" %%a in (`
+        query.exe user %username%
+    `) do if /i "%%~a"==">%username%" 2>&3 net.exe localgroup "Remote Desktop Users" %username% /add || REM
+
+    call :sub\time\--now _oset_now
+    set _oset_now=%_oset_now:~0,14%
+    SecEdit.exe /export /cfg %windir%\Setup\hisecws_backup-%_oset_now%.inf /log %windir%\Temp\hisecws-%_oset_now%.log
+    >%windir%\Setup\hisecws.inf call :sub\txt\--subtxt "%~f0" hisecws.inf 4300
+    SecEdit.exe /configure /db %windir%\Setup\hisecws-%_oset_now%.sdb /cfg %windir%\Setup\hisecws.inf /log %windir%\Temp\hisecws-%_oset_now%.log /quiet
     endlocal
 
-    net.exe localgroup "Remote Desktop Users" %username% /add
-    SecEdit.exe /export /cfg %windir%\Setup\hisecws.inf~ /log %windir%\Temp\hisecws.log
-    >%windir%\Setup\hisecws.inf call :sub\txt\--subtxt "%~f0" hisecws.inf 4300
-    SecEdit.exe /configure /db %windir%\Setup\hisecws.sdb /cfg %windir%\Setup\hisecws.inf /log %windir%\Temp\hisecws.log /quiet
     gpupdate.exe /force
 
     @REM powercfg.exe /hibernate off
