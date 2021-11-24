@@ -449,6 +449,18 @@ exit /b 0
     endlocal
     goto :eof
 
+
+::: "Wake on LAN" "" "usage: %~n0 wol [macaddr] [ipv4]" ""
+:xlib\wol
+    if "%~2"=="" exit /b 15 @REM args error
+    PowerShell.exe ^
+        -NoLogo ^
+        -NonInteractive ^
+        -ExecutionPolicy Unrestricted ^
+        -Command ^
+        "& { $UC = New-Object System.Net.Sockets.UdpClient(\"%~2\", 9); $UC.EnableBroadcast = $true; $MP = [Byte[]] (, 0xFF * 6) + ((\"%~1\" -split \"[:-]\" | ForEach-Object { [Byte] \"0x$_\"})  * 16); $UC.Send($MP, $MP.Length) | Out-Null; $UC.Close(); }"
+    goto :eof
+
 ::: "Ipv4 tools, Use '-h' for a description of the options" "" "usage: %~n0 ip [option]" ""
 :xlib\ip
     if "%~1"=="" call :this\annotation %0 & goto :eof
@@ -489,7 +501,7 @@ exit /b 0
     endlocal
     exit /b 0
 
-::: "    --find, -f [MAC] ...  Search IPv4 by MAC or Host name"
+::: "    --find, -f [MAC] ...  Search IPv4 by MAC or Host name" ""
 :sub\ip\--find
 :sub\ip\-f
     if "%~1"=="" exit /b 32 @REM host name is empty
@@ -578,6 +590,22 @@ exit /b 0
     for /f usebackq^ skip^=1^ tokens^=2^ delims^=^" %%a in (
         `wmic.exe NicConfig get DefaultIPGateway`
     ) do set %1=%%a
+    exit /b 0
+
+::: "    --forward  [[local_ip:]port] [to_ip:port]" "                          IPv4 forward"
+:sub\ip\--forward
+    call :sub\oset\--vergeq 6.0 || exit /b 41 @REM OS version is too low
+    :: netsh.exe interface portproxy show all
+    if "%~2"=="" exit /b 42 @REM args error
+    setlocal
+    set _local_ip=%~1
+    set _to_ip=%~2
+    for /f "usebackq tokens=1-4" %%a in (
+        '%_local_ip::= % %_to_ip::= %'
+    ) do if "%%~d"=="" (
+        netsh.exe interface portproxy add v4tov4 listenport=%%a connectport=%%c connectaddress=%%b
+    ) else netsh.exe interface portproxy add v4tov4 listenport=%%b listenaddress=%%a connectport=%%d connectaddress=%%c
+    endlocal
     exit /b 0
 
 ::: "Directory tools, Use '-h' for a description of the options" "" "usage: %~n0 dir [option] [...]" ""
@@ -949,7 +977,7 @@ exit /b 0
     call winrm.cmd set winrm/config/client @{TrustedHosts="*"}
     exit /b 0
 
-::: "    --desktop-style,  -ds  [--force/-f]           Convert windows server at desktop setting." "                                                  [DANGER!] This is an irreversible operation"
+::: "    --desktop-style,  -ds  [--force/-f]           Convert windows server at desktop setting." "                                                  [DANGER^^^!] This is an irreversible operation"
 :sub\oset\--desktop-style
 :sub\oset\-ds
     setlocal
@@ -991,8 +1019,8 @@ exit /b 0
     goto :eof
 
 ::: "    --freed-7g,       -f7                         Disable ShippedWithReserves"
-:sub\oset\--allow-guest
-:sub\oset\-ag
+:sub\oset\--freed-7g
+:sub\oset\-f7
     reg.exe ^
         add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager ^
             /v ShippedWithReserves ^
@@ -1389,6 +1417,26 @@ exit /b 0
 
     endlocal
     exit /b 0
+
+::: "    ---445-port                                   Release 445 port use by kernel (smb server)"
+:sub\oset\---445-port
+    setlocal
+    set _use=
+    for /f "usebackq tokens=2,4-5" %%a in (`
+        netstat.exe -abno ^| find.exe ":445 "
+    `) do if "%%c%%b"=="4LISTENING" set "_use=%%a"
+    if not defined _use exit /b 0
+
+    sc.exe config LanmanServer start= disabled
+    @REM sc.exe stop LanmanServer
+    >&3 echo need reboot.
+    exit /b 0
+
+:: https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/sysprep-command-line-options?view=windows-11
+::: "    --sysprep              [--oobe/--audit]       [DANGER^^^!] Remove PC-specific information"
+:sub\oset\--sysprep
+    exit /b 172 @REM not implement
+
 
 ::: "Lock, Use '-h' for a description of the options" "" "usage: %~n0 lock [option] [...]" ""
 :xlib\lock
@@ -3006,6 +3054,34 @@ exit /b 0
     @REM \Windows\WinSxS\amd64_microsoft-windows-servicingstack_31bf3856ad364e35_!_ver_drv!_none_!_hash_drv!\drvstore.dll
     @REM \Windows\WinSxS\amd64_microsoft-windows-servicingstack_31bf3856ad364e35_!_ver_drv!_none_!_hash_drv!\wcp.dll
     goto :eof
+
+::: "    --vnet        [addr] [[mask]]               Create Microsoft KM-TEST Loopback Adapter (Virtual Ethernet)"
+:sub\drv\--vnet
+    if "%~1"=="" exit /b 71 @REM ip addr is empty.
+    setlocal
+    for /f "usebackq tokens=1,4*" %%a in (`
+        netsh.exe interface ipv4 show interfaces
+    `) do if "%%b"=="connected" set "_if%%a=%%c"
+
+    call :sub\var\--in-path devcon.exe || >nul call :init\devcon
+    :: hdwwiz.exe
+    devcon.exe install %windir%\inf\netloop.inf *msloop || exit /b 72 @REM install adapter error
+
+    set _name=
+    for /f "usebackq tokens=1,4*" %%a in (`
+        netsh.exe interface ipv4 show interfaces
+    `) do if "%%b"=="connected" if not defined _if%%a set "_name=%%c"
+
+    if not defined _name || exit /b 73 @REM install adapter error
+
+    >&3 echo New loopback adapter name is '%_name%'
+
+    set _mask=%~2
+    if "%~2"=="" set _mask=255.255.255.0
+
+    netsh.exe interface ipv4 set address name="%_name%" addr=%~1 mask=%_mask%
+    endlocal
+    exit /b 0
 
 @REM from Window 10 wdk, will download devcon.exe at script path
 :init\devcon
