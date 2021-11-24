@@ -2447,10 +2447,18 @@ exit /b 0
                 /v %%a ^
                 /t REG_DWORD /d 0 /f
 
-    call :sub\oset\--feature-enable ^
-            ServicesForNFS-ClientOnly; ^
-            ClientForNFS-Infrastructure; ^
-            NFS-Administration
+    for /f "usebackq tokens=2,3" %%a in (
+        `reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v InstallationType`
+    ) do if "%%a"=="REG_SZ" if /i "%%b"=="Client" (
+        call :sub\oset\--feature-enable ^
+                ServicesForNFS-ClientOnly; ^
+                ClientForNFS-Infrastructure; ^
+                NFS-Administration
+    ) else call :sub\oset\--feature-enable ^
+                ServicesForNFS-ServerAndClient; ^
+                ClientForNFS-Infrastructure; ^
+                ServerForNFS-Infrastructure; ^
+                NFS-Administration
 
     @REM start /w Ocsetup.exe ServicesForNFS-ClientOnly;ClientForNFS-Infrastructure;NFS-Administration /norestart
     exit /b 0
@@ -3542,9 +3550,11 @@ exit /b 0
     @REM Version 16.0.14026.20252
     @REM Version 16.0.14026.20306
     @REM Version 16.0.14131.20278
+    @REM Version 16.0.14326.20384
+    @REM Version 16.0.14527.20178
 
     call :xlib\download ^
-            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_14131-20278.exe ^
+            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_14527-20178.exe ^
             %temp%\%~1\officedeploymenttool16.exe || exit /b 1
 
     %temp%\%~1\officedeploymenttool16.exe /extract:%temp%\%~1 /quiet || exit /b 1
