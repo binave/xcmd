@@ -2,8 +2,8 @@
 command-line wrapper for batch and shell.
 
 一些常用的 batch 和 shell 方法合集。
-<br/>`xlib` 将仅使用第一方工具，做到零依赖和开箱即用。包括子命令在内实用命令达到数十个。
-<br/>`x3rd` 则对一些第三方命令行工具，进行了二次命令封装。
+<br/>`xlib` 将仅使用第一方工具，开箱即用。包括子命令在内实用命令达到数十个。
+<br/>`x3rd` 对一些第三方命令行工具进行了封装。
 
 ---------
 # Licensing
@@ -12,13 +12,24 @@ xcmd is licensed under the Apache License, Version 2.0. See
 license text.
 
 ---------
-
-
 > 将脚本文件放入环境变量后，通过 `-h` 或者 `--help` 参数获得使用帮助。
-> <br/>`shell` 脚本需要注意赋予可执行权限，注意行尾序列使用 `LF`，否则脚本会无法执行。
-> <br/>`Windows` 脚本支持从 `UNC` 路径启动，方便作为服务来使用，注意行尾序列使用 `CRLF`，否则脚本会无法执行，同时避免在脚本中使用非 `ANSI` 字符。
+> <br/>`shell` 脚本需要注意赋予可执行权限，注意下载后确认源码中行尾使用 `LF`换行，否则脚本会无法执行。
+> <br/>`Windows` 脚本支持从 `UNC`（SMB） 路径启动，方便作为服务来使用，注意下载后确认源码行尾使用 `CRLF`换行，否则脚本会无法执行，同时避免在脚本中使用非 `ANSI` 字符。
 
 ---------
+
+### Q: 如何唤醒同一个网段的电脑（Wake on lan）。
+A:
+
+1. 下载 `xlib` 或 `xlib.cmd` 到本地计算机执行
+
+    ```sh
+    # aa:bb:cc:dd:ee:ff 为目标网卡的 MAC 地址。
+    xlib wol aa:bb:cc:dd:ee:ff
+    ```
+
+---------
+
 ### Q: 如何在不支持 `TPM` 的计算机上，快速使用 `Windows` 系统的 `BitLocker` 加密所有磁盘。
 A:
 

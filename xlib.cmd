@@ -263,7 +263,7 @@ exit /b 0
     @REM if /i "%0"==":sub\is\--gui" for %%a in (%cmdcmdline%) do if /i %%~a==/c set _code=0
     endlocal & exit /b %_code%
 
-@REM Test mac addr
+@REM Test mac address
 :sub\is\--MACaddr
 :sub\is\-mac
     setlocal enabledelayedexpansion
@@ -450,15 +450,26 @@ exit /b 0
     goto :eof
 
 
-::: "Wake on LAN" "" "usage: %~n0 wol [macaddr] [ipv4]" ""
+::: "Wake on LAN" "" "usage: %~n0 wol [MAC_addr] [[broadcast_ipv4]]" ""
 :xlib\wol
-    if "%~2"=="" exit /b 15 @REM args error
+    if "%~1"=="" exit /b 15 @REM MAC address error
+    setlocal
+    @REM "
+    set _broadcast=
+    if "%~2" neq "" (
+        set _broadcast=%~2
+    ) else for /f usebackq^ skip^=1^ tokens^=2^ delims^=^" %%a in (
+        `wmic.exe NicConfig get DefaultIPGateway`
+    ) do set _broadcast=%%~na.255
+
     PowerShell.exe ^
         -NoLogo ^
         -NonInteractive ^
         -ExecutionPolicy Unrestricted ^
         -Command ^
-        "& { $UC = New-Object System.Net.Sockets.UdpClient(\"%~2\", 9); $UC.EnableBroadcast = $true; $MP = [Byte[]] (, 0xFF * 6) + ((\"%~1\" -split \"[:-]\" | ForEach-Object { [Byte] \"0x$_\"})  * 16); $UC.Send($MP, $MP.Length) | Out-Null; $UC.Close(); }"
+        "& { $UC = New-Object System.Net.Sockets.UdpClient(\"%_broadcast%\", 9); $UC.EnableBroadcast = $true; $MP = [Byte[]] (, 0xFF * 6) + ((\"%~1\" -split \"[:-]\" | ForEach-Object { [Byte] \"0x$_\"})  * 16); $UC.Send($MP, $MP.Length) | Out-Null; $UC.Close(); }"
+
+    endlocal
     goto :eof
 
 ::: "Ipv4 tools, Use '-h' for a description of the options" "" "usage: %~n0 ip [option]" ""
@@ -557,7 +568,7 @@ exit /b 0
         start /b %~nx0 \\:ip\--find %%~na.%%b %_keys%
     )
 
-    @REM print ipv4 for mac addr not catch
+    @REM print ipv4 for MAC address not catch
     for %%a in (
         %_keys%
     ) do call :map --get %%~a _value -t && for %%b in (
@@ -3065,7 +3076,7 @@ exit /b 0
 
 ::: "    --vnet        [addr] [[mask]]               Create Microsoft KM-TEST Loopback Adapter (Virtual Ethernet)"
 :sub\drv\--vnet
-    if "%~1"=="" exit /b 71 @REM ip addr is empty.
+    if "%~1"=="" exit /b 71 @REM ip address is empty.
     setlocal
     for /f "usebackq tokens=1,4*" %%a in (`
         netsh.exe interface ipv4 show interfaces

@@ -264,10 +264,18 @@ __get_pkg () {
     wait
 }
 
-### Wake on LAN ##Usage: wol [MAC_addr] [broadcast_ipv4] ##    e.g. #        wol aa:bb:cc:dd:ee:ff 10.0.0.255 ##
+### Wake on LAN ##Usage: wol [MAC_addr] [[broadcast_ipv4]] ##    e.g. #        wol aa:bb:cc:dd:ee:ff 10.0.0.255 ##
 _xlib_wol () {
-    [ "$1" ] || exit 1; # MAC addr is empty
-    [ "$2" ] || exit 1; # broadcast ip is empty
+    [ "$1" ] || exit 1; # MAC address is empty
+
+    if [ ! "$2"  ]; then
+        [[ $OSTYPE == darwin* ]] && {
+            route_ip=`route -n get default | awk '/gateway/{print $2}'`;
+            :
+        } || route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
+        set -- "$1" "${route_ip%.*}.255"
+
+    fi
 
     if which perl >/dev/null && [ "${SHELL##*/}" == "bash" ]; then
         printf $(
@@ -1001,8 +1009,15 @@ _xlib_ip () {
     case $1 in
         --list|-l)
             # netstat -rn | grep "default"
-            local route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-            ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
+            local route_ip;
+            [[ $OSTYPE == darwin* ]] && {
+                route_ip=`route -n get default | awk '/gateway/{print $2}'`;
+                ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
+                :
+            } || {
+                route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
+                ip addr | awk '/inet '${route_ip%.*}'\.[0-9]+/{print gensub(/\/.*/, "", "", $2)}'
+            }
         ;;
         --find|-f)
             shift;
@@ -1077,7 +1092,7 @@ _xlib_ip () {
 
 # for _xlib_ip
 __ip_find () {
-    [ "$1" ] || exit 1; # MAC addr or Host name is empty
+    [ "$1" ] || exit 1; # MAC address or Host name is empty
 
     # Clear arp cache
     [[ $OSTYPE == darwin* ]] && {
@@ -1172,7 +1187,7 @@ __ip_find () {
     # destroy thread valve
     _thread_valve --destroy;
 
-    # print ipv4 for mac addr not catch
+    # print ipv4 for MAC address not catch
     for mac_addr in ${mac_addr_arr[@]}; do
         [ "${mac_addr/@/}" == "$mac_addr" -o "${mac_addr/[0-9].[0-9]*.*[0-9].[0-9]/}" == "$mac_addr" ] && continue;
         # cache key
@@ -1219,7 +1234,7 @@ _xlib_hosts () {
     printf -v lf "\n";
 
     while read line; do
-        # override mac addr in map1, if value not ipv4
+        # override mac address in map1, if value not ipv4
         _xlib_ip --test "$(_map 1 --get ${line%% *})" || {
             _map 1 --put $line >/dev/null;
             printf "%s\n" "$line"
@@ -1259,7 +1274,7 @@ _xlib_hosts () {
 
 }
 
-# # Test mac addr
+# # Test mac address
 # __imac () {
 #     [ "$1" ] || return 1;
 #     # command test
