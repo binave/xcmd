@@ -578,6 +578,9 @@ _xlib_oset () {
             sudo spctl --master-disable
             sudo xattr -d com.apple.quarantine "$1"
         ;;
+        --list-users)
+            dscl . -list /Users UniqueID
+        ;;
         *)
             exit 1; # invalid option
         ;;
@@ -1448,7 +1451,7 @@ _func_annotation () {
     # Cache IFS
     OLDIFS=$IFS;
 
-    [ "$1" ] && {
+    if [ "$1" ]; then
         # show select
         while read i j; do
             # Make array splite with #
@@ -1470,7 +1473,8 @@ _func_annotation () {
             [[ "$i" == _${0##*/}* ]] && [ "$j" == ")" ] && unset k;
         done < "$0"; # Scan this script
         return 1
-    } || {
+
+    else
         # show all
         while read i j; do
             # Cache intro
@@ -1483,7 +1487,7 @@ _func_annotation () {
                 unset k
             };
         done < "$0"; # Scan this script
-    }
+    fi
 
 }
 
