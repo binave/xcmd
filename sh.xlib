@@ -32,33 +32,14 @@
 __variable_map () {
     [ "$1" ] || return 1;
     __vmap_encode() {
-        local char idx key;
-        if [ "${1//[0-9A-Za-z_]/}" == "" ]; then
-            key="$1"
-        else
-            for idx in `seq 0 ${#1}`; do
-                char="${1:$idx:1}"; [ "${char/[0-9A-Za-z_]/}" == "" ] && { key=$key$char; } || key=$key`printf _x%dx "'$char"`;
-            done
-        fi
-        printf %s "$key"
-    }
-
-    __vmap_decode() {
-        local asci len skip=0;
-        for idx in `seq 0 ${#1}`; do
-            [ $((--skip)) -gt 0 ] && continue;
-            [ "${1:$idx:2}" == "_x" ] && {
-                if [ "${1:$idx+4:1}" == "x" ]; then len=2; elif [ "${1:$idx+5:1}" == "x" ]; then len=3; else unset len; fi
-                [ "$len" ] && { asci=${1:$idx+2:$len}; [ "${asci//[0-9]/}" == "" ] && { printf \\x`printf %x $asci`; skip=$((len+3)); continue; } }
-            }
-            printf %s ${1:$idx:1}
-        done
+        [ "${1//[0-9A-Za-z_]/}" == "" ] && { printf %s "$1"; return 0; }
+        local idx=-1 args=; while [ $((idx+=2)) -le ${#1} ]; do args="$args '${1:$idx-1:1} '${1:$idx:1}"; done; printf x%x ${args%" '"}; # printf "${args//x/\\x}"
+        # printf d%d ${key%" '"}; # printf "`printf '\\\\x'%x ${key//d/ }`"
     }
 
     local key pool value;
     [ "${1:0:2}" == "--" ] || { pool=`__vmap_encode "$1"`; shift; };
-    key=`__vmap_encode "$2"`;
-    value="$3";
+    key=`__vmap_encode "$2"` value="$3";
     case $1 in
         --put) [ "$value" ] && eval VARIABLE_MAP${pool}_PREFIX_$key=\"\$value\";;
         --incrby) [ "$value" ] && eval ": \$((VARIABLE_MAP${pool}_PREFIX_$key += $value))";;
@@ -67,8 +48,8 @@ __variable_map () {
         --remove) [ "$key" ] && unset VARIABLE_MAP${pool}_PREFIX_$key;;
         --size) printf %d $(set | grep -c '^VARIABLE_MAP'${pool}_PREFIX_);;
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP'${pool}'_PREFIX_/{printf " " $1}'`;;
-        --keys) set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//_x42x/".*"}'_PREFIX_'${key//_x42x/".*"}'/{print $2}' | while read key; do printf "%s\n" `__vmap_decode "$key"`; done;;
-        --2keys) set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//_x42x/".*"}'_PREFIX_'${key//_x42x/".*"}'/{print $2 "_x42x" $3}' | while read key; do printf "%s\n" `__xj_vm_decode "$key"`; done;;
+        --keys) printf `set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2) "\\\n"} else {printf $2 "\\\n"}}'`;;
+        --2keys) printf `set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2)} else {printf $2}; printf "*"; if($3 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $3)} else {printf $3}; printf "\\\n"}'`;;
         *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
 
