@@ -1,5 +1,5 @@
 #!/bin/bash
-#   Copyright 2017-2021 bin jin
+#   Copyright 2017 bin jin
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -176,8 +176,39 @@ _x3rd_moby () {
             curl --location --connect-timeout 30 --silent https://index.docker.io/v1/repositories/$2/tags 2>/dev/null | \
                 awk -F '[{},]' -v tag="$2" '{for(i=1; i<NF; i++)if($i ~ /name/){gsub(/"/, "", $i); sub(/ name: /, tag ":" , $i); print $i}}' | sort --version-sort;
         ;;
-        bridge)
+        bridge|b)
             docker network inspect --format '{{range .Containers}}{{printf "%-18s %s  %s\n" .Name .MacAddress .IPv4Address}}{{end}}' bridge
+        ;;
+        port|p)
+            # docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}}{{(index $value 0).HostPort}} -> {{$key}}{{"\n"}}{{end}}' $2
+            docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}}{{printf "%-15s -> %s\n" (index $value 0).HostPort $key}}{{end}}' $2
+        ;;
+        mount|m)
+            # docker inspect --format '{{range $i, $v := .Mounts}}{{printf "%-40s -> %s\n" $v.Source $v.Destination}}{{end}}' $2
+            docker inspect --format '{{range $i, $v := .Mounts}}{{printf "%-40s -> %s %s\n" $v.Source $v.Destination $v.Mode}}{{end}}' $2
+        ;;
+        run-com)
+            docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}} --publish {{(index $value 0).HostPort}}:{{$key}} \{{"\n"}}{{end}}{{range $i, $v := .Mounts}} --volume {{$v.Source}}:{{$v.Destination}} {{$v.Mode}} \{{"\n"}}{{end}}{{range $key, $value := .Config.Env}} --env {{$value}} \{{"\n"}}{{end}}' $2
+        ;;
+        https4nginx)
+            shift;
+            local host_name="$1" httpd_root_path="$2" nginx_ssl_path="$3" emails="$4" image_version=$(docker images | awk '/^certbot/{print $2}' | sort -rV | head -1);
+            [ "$host_name" ] || exit 1; # hostname is empty
+            [ "$httpd_root_path" ] || exit 1; # httpd root path is empty
+            [ "$nginx_ssl_path" ] || exit 1; # nginx ssl path is empty
+            [ "$emails" ] || exit 1; # email is empty
+            : ${image_version:='latest'};
+            docker run --rm \
+                --volume $httpd_root_path:/www \
+                --volume $nginx_ssl_path/letsencrypt:/etc/letsencrypt \
+                certbot/certbot:$image_version \
+                certonly \
+                    --non-interactive \
+                    --agree-tos \
+                    --email $emails \
+                    --webroot \
+                    --webroot-path /www \
+                    --domain $host_name
         ;;
         *)
             exit 1; # invalid option

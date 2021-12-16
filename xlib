@@ -900,6 +900,11 @@ _xlib_dir () {
     esac
 }
 
+### "Lock, Use '-h' for a description of the options" "" "usage: %~n0 lock [option] [...]" ""
+_xlib_lock () {
+    :
+}
+
 ### String manage ##Usage: str [option] ...##    --random,   -r   [count]      Print random string #    --lower,    -l   [str]        Convert lower case #    --upper,    -u   [str]        Convert upper case #    --tac            [[file]]#    --xmlvalue, -xv  [tag_name]   Get xml value #    --unascii,  -ua  [dir_path]   Print text not in ASCII char #    --dhms,     -t   [secends]    Format Unix timestamp to ??d ??h ??m ??s #    --passwd,   -pw  [passwd_str] Get password for stdin chpasswd -e ##
 _xlib_str () {
     case $1 in

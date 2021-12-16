@@ -1,3 +1,4 @@
+0> /* :
 @echo off
 ::     Copyright 2017 bin jin
 ::
