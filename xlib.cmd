@@ -977,7 +977,7 @@ exit /b 0
     :: net.exe start msiserver
     exit /b 0
 
-::: "    --open-winrm,     -ow  [--client/-c]          Open winrm at client or server."
+::: "    --open-winrm,     -ow  [[--client/-c]]        Open winrm at client or server."
 :sub\oset\--open-winrm
 :sub\oset\--ow
     ::: server and client
@@ -988,7 +988,7 @@ exit /b 0
     call winrm.cmd set winrm/config/client @{TrustedHosts="*"}
     exit /b 0
 
-::: "    --desktop-style        [--force]              Convert windows server at desktop setting." "                                                  [DANGER^^^!] This is an irreversible operation"
+::: "    --desktop-style        [[--force]]            Convert windows server at desktop setting." "                                                  [DANGER^^^!] This is an irreversible operation"
 :sub\oset\--desktop-style
     setlocal
     set _editionid=
@@ -1706,7 +1706,7 @@ exit /b 0
     >&3 echo complete.
     goto :eof
 
-::: "    --encrypts-all          [--safe] [letter:]  Encrypts all volumes by bitlocker, need removable drive" "                  ([--safe]: Deny write access to fixed and removable drives not protected by BitLocker)" ""
+::: "    --encrypts-all       [[--safe]] [letter:]   Encrypts all volumes by bitlocker, need removable drive" "                  ([--safe]: Deny write access to fixed and removable drives not protected by BitLocker)" ""
 :sub\vol\--encrypts-all
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 64 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 60 @REM not support winpe
@@ -1782,7 +1782,7 @@ exit /b 0
     echo.
     exit /b 0
 
-::: "    --encrypts              [letter:] [[vol]]   Encrypts the volume by bitlocker"
+::: "    --encrypts           [letter:] [[vol]]      Encrypts the volume by bitlocker"
 :sub\vol\--encrypts
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 74 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 70 @REM not support winpe
@@ -1818,7 +1818,7 @@ exit /b 0
     endlocal
     goto :eof
 
-::: "    --decrypts              [letter:]           Decrypts the volume"
+::: "    --decrypts           [letter:]              Decrypts the volume"
 :sub\vol\--decrypts
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 84 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 80 @REM not support winpe
@@ -1927,7 +1927,7 @@ exit /b 0
     ) else set %~1=!%~1!_%~2
     shift /2 & goto this\joint_serial
 
-::: "    --crypts-status,  -cs   [letter:]           Provides information about BitLocker-capable volumes" "                            [[--more/-m]]       display more crypts info" "" "    --wipes,     -w   [letter:]                 Wipes the free space on the volume"
+::: "    --crypts-status, -cs [letter:] [[--more/-m]]" "                                                Provides information about BitLocker-capable volumes" "                  ([--more/-m]: display more crypts info)" ""
 :sub\vol\--crypts-status
 :sub\vol\-cs
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 94 @REM manage-bde feature not enable
@@ -1961,6 +1961,7 @@ exit /b 0
             -Command Get-TpmSupportedFeature && exit /b 0
     exit /b 1
 
+::: "    --wipes,         -w  [letter:]              Wipes the free space on the volume"
 :sub\vol\--wipes
 :sub\vol\-w
     @REM TODO mount directory
@@ -1972,7 +1973,7 @@ exit /b 0
     ) || cipher.exe /w:%~d1
     goto :eof
 
-::: "    --trim,      -t   [letter:]                 Trim SSD, HDD will return false"
+::: "    --trim,          -t  [letter:]              Trim SSD, HDD will return false"
 :sub\vol\--trim
 :sub\vol\-t
     @REM TODO mount directory
@@ -3185,12 +3186,15 @@ exit /b 0
         EnterpriseN_62@JMNMF-RHW7P-DMY6X-RF3DR-X2BQT
         EnterpriseN_63@TT4HM-HN7YT-62K67-RGRQJ-JFFXW
         EnterpriseN_100@DPH2V-TTNVB-4X9Q3-TJR4H-KHJW4
+
         EnterpriseS_100_10240@WNMTR-4C88C-JK8YV-HQ7T2-76DF9
         EnterpriseS_100_14393@DCPHK-NFMTC-H88MJ-PFHPY-QJ4BJ
         EnterpriseS_100_17763@M7XTQ-FN8P6-TTKYV-9D4CC-J462D
+        EnterpriseS_100_19041@M7XTQ-FN8P6-TTKYV-9D4CC-J462D
         EnterpriseSN_100_10240@2F77B-TNFGY-69QQF-B8YKP-D69TJ
         EnterpriseSN_100_14393@QFFDN-GRT3P-VKWWX-X7T3R-8B639
         EnterpriseSN_100_17763@92NFX-8DJQP-P6BBQ-THF9C-7CG2H
+        EnterpriseSN_100_19041@92NFX-8DJQP-P6BBQ-THF9C-7CG2H
 
         Professional_61@FJ82H-XT6CR-J8D7P-XQJJ2-GPDD4
         Professional_62@NG4HW-VH26C-733KW-K6F98-J8CK4
