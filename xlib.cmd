@@ -941,9 +941,8 @@ exit /b 0
     ) do dism.exe /Online /Enable-Feature /FeatureName:%%a /NoRestart
     exit /b 0
 
-::: "    --disable-apps,   -da                         Disable Apps auto install"
+::: "    --disable-apps                                Disable Apps auto install"
 :sub\oset\--disable-apps
-:sub\oset\-da
     reg.exe ^
         add HKCU\Software\Policies\Microsoft\Windows\CloudContent ^
             /v DisableWindowsConsumerFeatures ^
@@ -989,15 +988,14 @@ exit /b 0
     call winrm.cmd set winrm/config/client @{TrustedHosts="*"}
     exit /b 0
 
-::: "    --desktop-style,  -ds  [--force/-f]           Convert windows server at desktop setting." "                                                  [DANGER^^^!] This is an irreversible operation"
+::: "    --desktop-style        [--force]              Convert windows server at desktop setting." "                                                  [DANGER^^^!] This is an irreversible operation"
 :sub\oset\--desktop-style
-:sub\oset\-ds
     setlocal
     set _editionid=
     for /f "usebackq tokens=3" %%a in (
         `reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID`
     ) do set _editionid=%%a
-    if "%~1" neq "-f" if "%~1" neq "--force" if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
+    if "%~1" neq "--force" if /i "%_editionid:~0,6%" neq "Server" exit /b 98 @REM not server operating system
 
     ::: if login
     for /f "usebackq skip=1" %%a in (`
@@ -1020,9 +1018,8 @@ exit /b 0
     sc.exe config Audiosrv start= auto
     exit /b 0
 
-::: "    --allow-guest,    -ag                         Allow guest for samba"
+::: "    --allow-guest                                 Allow guest for samba"
 :sub\oset\--allow-guest
-:sub\oset\-ag
     reg.exe ^
         add HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters ^
             /v AllowInsecureGuestAuth ^
@@ -1030,9 +1027,8 @@ exit /b 0
             /d 0x1 /f
     goto :eof
 
-::: "    --freed-7g,       -f7                         Disable ShippedWithReserves"
+::: "    --freed-7g                                    Disable ShippedWithReserves"
 :sub\oset\--freed-7g
-:sub\oset\-f7
     reg.exe ^
         add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager ^
             /v ShippedWithReserves ^
@@ -1040,9 +1036,8 @@ exit /b 0
             /d 0x0 /f
     goto :eof
 
-::: "    --intel-amd,      -ia                         Run this before Chang CPU"
+::: "    --intel-amd                                   Run this before Chang CPU"
 :sub\oset\--intel-amd
-:sub\oset\-ia
     call :sub\oset\--vergeq 6.0 || exit /b 12 @REM OS version is too low
 
     if "%~1"=="" (
@@ -1076,9 +1071,8 @@ exit /b 0
     exit /b 0
 
 @REM winpe \$windows.~bt -> ""
-::: "    --replace-reg,    -rr  [file_path] [src_str] [tag_str]" "                                                  Replace reg string"
+::: "    --replace-reg          [file_path] [src_str] [tag_str]" "                                                  Replace reg string"
 :sub\oset\--replace-reg
-:sub\oset\-rr
     if "%~2"=="" exit /b 24 @REM source string empty
     setlocal
     call :regedit\on
@@ -1661,9 +1655,8 @@ exit /b 0
     endlocal & set %~1=%_var%
     exit /b 0
 
-::: "    --hide-bitlocker, -hb                       Hide bitlocker feature, [DANGER^^^!] This is an irreversible operation"
+::: "    --hide-bitlocker                            Hide bitlocker feature, [DANGER^^^!] This is an irreversible operation"
 :sub\vol\--hide-bitlocker
-:sub\vol\-hb
     setlocal enabledelayedexpansion
     call :regedit\on
     @REM right-mouse menu
@@ -1713,9 +1706,8 @@ exit /b 0
     >&3 echo complete.
     goto :eof
 
-::: "    --encrypts-all,   -eca  [--safe] [letter:]  Encrypts all volumes by bitlocker, need removable drive" "                  ([--safe]: Deny write access to fixed and removable drives not protected by BitLocker)" "                                                not protected by BitLocker" ""
+::: "    --encrypts-all          [--safe] [letter:]  Encrypts all volumes by bitlocker, need removable drive" "                  ([--safe]: Deny write access to fixed and removable drives not protected by BitLocker)" ""
 :sub\vol\--encrypts-all
-:sub\vol\-eca
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 64 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 60 @REM not support winpe
     call :sub\oset\--vergeq 10.0 || exit /b 62 @REM operating system version not support
@@ -1790,9 +1782,8 @@ exit /b 0
     echo.
     exit /b 0
 
-::: "    --encrypts,       -ec   [letter:] [[vol]]   Encrypts the volume by bitlocker"
+::: "    --encrypts              [letter:] [[vol]]   Encrypts the volume by bitlocker"
 :sub\vol\--encrypts
-:sub\vol\-ec
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 74 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 70 @REM not support winpe
     if /i "%~1" neq "%~d1" exit /b 76 @REM target not a letter or not support
@@ -1827,9 +1818,8 @@ exit /b 0
     endlocal
     goto :eof
 
-::: "    --decrypts,       -dc   [letter:]           Decrypts the volume"
+::: "    --decrypts              [letter:]           Decrypts the volume"
 :sub\vol\--decrypts
-:sub\vol\-dc
     for %%a in (manage-bde.exe) do if "%%~$path:a"=="" exit /b 84 @REM manage-bde feature not enable
     if /i "%username%"=="System" exit /b 80 @REM not support winpe
     if not exist "%~1" exit /b 88 @REM letter not found
