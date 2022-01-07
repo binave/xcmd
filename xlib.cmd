@@ -1438,6 +1438,17 @@ exit /b 0
     >&3 echo need reboot.
     exit /b 0
 
+::: "    --dav-http                                    All webdav client use http"
+:sub\oset\--dav-http
+    reg.exe add ^
+        HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters ^
+        /v BasicAuthLevel ^
+        /t REG_DWORD ^
+        /d 0x2 /f || exit /b 172 @REM reg error
+    net.exe stop webclient
+    net.exe start webclient
+    exit /b 0
+
 :: https://docs.microsoft.com/en-us/windows-hardware/manufacture/desktop/sysprep-command-line-options?view=windows-11
 ::: "    --sysprep              [--oobe/--audit]       [DANGER^^^!] Remove PC-specific information"
 :sub\oset\--sysprep
