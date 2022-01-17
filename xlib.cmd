@@ -1438,13 +1438,27 @@ exit /b 0
     >&3 echo need reboot.
     exit /b 0
 
-::: "    --dav-http                                    All webdav client use http"
+::: "    --dav-http                                    Allow webdav client use http"
 :sub\oset\--dav-http
     reg.exe add ^
         HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters ^
         /v BasicAuthLevel ^
         /t REG_DWORD ^
         /d 0x2 /f || exit /b 172 @REM reg error
+
+    net.exe stop webclient
+    net.exe start webclient
+    exit /b 0
+
+::: "    --dav-maxsize                                 Set webdav client File size max limit (4GB)"
+:sub\oset\--dav-maxsize
+    :: 50MB -> 4GB
+    reg.exe add ^
+        HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters ^
+        /v FileSizeLimitInBytes ^
+        /t REG_DWORD ^
+        /d 0xffffffff /f || exit /b 172 @REM reg error
+
     net.exe stop webclient
     net.exe start webclient
     exit /b 0
