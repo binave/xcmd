@@ -979,7 +979,7 @@ exit /b 0
 
 ::: "    --open-winrm,     -ow  [[--client/-c]]        Open winrm at client or server."
 :sub\oset\--open-winrm
-:sub\oset\--ow
+:sub\oset\-ow
     ::: server and client
     call winrm.cmd quickconfig -force
     if "%~1" neq "-c" if "%~1" neq "--client" goto :eof
