@@ -497,7 +497,7 @@ _x3rd_cam () {
     esac
 }
 
-### Get some urls ##Usage: urls [options] [args...] ##    --chrome,    -c  [mac-arm|mac-intel|win64|win32]  Get chrome url which last stable version #    --jetbrains, -j                     Get jetbrains urls which last stable version #    --eclipse,   -e                     Get last version eclipse and sha1 ##
+### Get some urls ##Usage: urls [options] [args...] ##    --chrome,    -c  [mac-arm|mac-intel|win64|win32]  Get chrome url which last stable version #    --jetbrains, -j                     Get jetbrains urls which last stable version #    --eclipse,   -e                     Get last version eclipse and sha1 #    --firefox,   -f                     Get firefox##
 _x3rd_urls () {
     # https://github.com/google/omaha/blob/master/doc/ServerProtocol.md
     # https://github.com/google/omaha/blob/master/doc/ServerProtocolV3.md
@@ -579,6 +579,11 @@ _x3rd_urls () {
                 awk '/>Eclipse IDE [^<>]+ Packages</{gsub(/.*IDE | Pack.*/, ""); system("curl -L \"https://www.eclipse.org/downloads/packages/admin/release_tracker/json/" $0 "/macosx\" 2>/dev/null")}' | \
                 awk -F \" '{for(i=1; i<=NF; i++) if($i ~ /download.php/) {gsub(/\\/, "", $i); sub(/.*=/, "", $i); a[j++]=$i; print "https:\/\/mirrors.ustc.edu.cn\/eclipse" $i}};END{for(i in a)system("curl -L \"https://www.eclipse.org/downloads/sums.php?file=" a[i] "&type=sha1\"; echo");}'
 
+        ;;
+        --firefox|-f)
+            printf 'wget --no-clobber --content-disposition \\\n';
+            printf "'https://download.mozilla.org/?product=firefox-latest&os=%s&lang=%s' \\\\\n" \
+                win64 zh-CN osx zh-CN linux64 zh-CN
         ;;
         *)
             exit 1; # Args not support

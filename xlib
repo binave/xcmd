@@ -900,7 +900,7 @@ _xlib_dir () {
     esac
 }
 
-### "Lock, Use '-h' for a description of the options" "" "usage: %~n0 lock [option] [...]" ""
+### Lock, Use '-h' for a description of the options #usage: %~n0 lock [option] [...]
 _xlib_lock () {
     :
 }
