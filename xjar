@@ -13,6 +13,67 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+__xj_unset() {
+    # clear environment variables
+    unset CLASSPATH JAVA_HOME $(set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}')
+}
+
+[ "$xj_jar_path" ] && {
+    if [ "$XJ_MAIN_CLASS_PATH" ]; then
+        set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+    else
+        set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+    fi
+    (
+        REPLY="$xj_jar_log_prefix";
+
+        # clear sub environment variables
+        __xj_unset;
+
+        # clear functions
+        unset $(set | awk '/^__xj_[0-9A-Za-z_]+[[:space:]]*\(/{printf " " $1}');
+
+        if [ "$REPLY" ]; then
+            nohup < /dev/null java "$@" 2>&1 | awk '{print '"$REPLY"';fflush(stdout)}' &
+            unset REPLY
+
+        else
+            nohup < /dev/null java "$@" 2>&1 &
+
+        fi
+
+        # # open port
+        # xj_java_pid=$!;
+        # {
+        #     firewall-cmd --state >/dev/null 2>/dev/null || exit 1;
+        #     which netstat >/dev/null 2>/dev/null || exit 1;
+        #     {
+        #         firewall-cmd --list-port;
+        #         netstat -lnp;
+        #     } | awk 'BEGIN{update=""};{
+        #         if (/\/(tc|ud)p/) {
+        #             for (i=1; i<=NF; i++) port[$i]++
+
+        #         } else if (/[^0-9]'$xj_java_pid'\/java/) {
+        #             sub(/.*:/, "", $4);
+        #             sub(/[46]$/, "", $1);
+        #             if (!port[$4 "/" $1]) {
+        #                 update="true";
+        #                 printf "open port \033[1m%s\033[0m/%s ", $4, $1;
+        #                 system("firewall-cmd --zone=public --add-port=" $4 "/" $1 " --permanent;");
+
+        #             } # else printf "port \033[1m%s\033[0m/%s already open.\n", $4, $1
+
+        #         }
+        #     }
+        #     END{if(update) system("firewall-cmd --reload >/dev/null")}'
+        #     # firewall-cmd --zone=public --remove-port=$port/$proto --permanent
+        # } &
+    )
+    exit 0
+
+}
+
 __xj_help() {
 
         printf "
@@ -45,24 +106,19 @@ e.g.
 
 }
 
-__xj_unset() {
-    # clear environment variables
-    unset CLASSPATH JAVA_HOME $(set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}')
-}
-
 __xj_redirect() {
     [ -s "$2" ] && return 1;
     mkdir -p "${2%/*}" || return 1;
     touch "$2";
-    gdb -p $1 >/dev/null 2>&1 <<GDB
-set scheduler-locking on
-print close(1)
-print open("$2", 1)
-print close(2)
-print open("$2", 1)
-quit
-GDB
-
+#     gdb -p $1 >/dev/null 2>&1 <<GDB
+# set scheduler-locking on
+# print close(1)
+# print open("$2", 1)
+# print close(2)
+# print open("$2", 1)
+# quit
+# GDB
+    reredirect -N -m "$2" $1
 }
 
 __xj_test_command() {
@@ -81,44 +137,6 @@ __xj_test_single_process() {
     [ "${xj_java_pid/[^0-9]/}" == "$xj_java_pid" ] && return 0;
     printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] not single process. pid: \033[1m%s\033[0m\n" $xj_jar_name, "${xj_java_pid//[^0-9]/ }" >&2;
     exit 1
-}
-
-__xj_main() {
-    (
-        # clear sub environment variables
-        __xj_unset;
-        # clear functions
-        unset $(set | awk '/^__xj_[0-9A-Za-z_]+[[:space:]]*\(/{printf " " $1}');
-        # main
-        nohup < /dev/null java "$@" 2>&1 &
-        # open port
-        xj_java_pid=$!;
-        {
-            firewall-cmd --state >/dev/null 2>/dev/null || exit 1;
-            which netstat >/dev/null 2>/dev/null || exit 1;
-            {
-                firewall-cmd --list-port;
-                netstat -lnp;
-            } | awk 'BEGIN{update=""};{
-                if (/\/(tc|ud)p/) {
-                    for (i=1; i<=NF; i++) port[$i]++
-
-                } else if (/[^0-9]'$xj_java_pid'\/java/) {
-                    sub(/.*:/, "", $4);
-                    sub(/[46]$/, "", $1);
-                    if (!port[$4 "/" $1]) {
-                        update="true";
-                        printf "open port \033[1m%s\033[0m/%s ", $4, $1;
-                        system("firewall-cmd --zone=public --add-port=" $4 "/" $1 " --permanent;");
-
-                    } # else printf "port \033[1m%s\033[0m/%s already open.\n", $4, $1
-
-                }
-            }
-            END{if(update) system("firewall-cmd --reload >/dev/null")}'
-            # firewall-cmd --zone=public --remove-port=$port/$proto --permanent
-        } &
-    )
 }
 
 __xj_load_config() {
@@ -165,7 +183,7 @@ xj_jar_path="${xj_jar_path/'-src.'/.}";
     xj_jar_name="${xj_jar_name%.*}";
     # xj_args_file="$XJ_JAR_LOG_DIR/$xj_jar_name.args";
     xj_jar_dir="${xj_jar_path%/*}/";
-    xj_java_pid=$(ps -ef | awk '/'"${xj_jar_dir//\//\\/}"'.*\.jar/ && !/awk/{print $2}');
+    xj_java_pid=$(ps -ef | awk '/[[:space:]]+[0-9]{2}(:[0-9]{2}){2}[[:space:]]java[[:space:]].*'"${xj_jar_dir//\//\\/}"'.*\.jar/{print $2}');
     [ "$XJ_LOG_PREFIX" ] && {
         # man date
         [ "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%[A-DF-IMNPR-Za-eghj-npr-z]/}" -a "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%-[A-DF-IMNPR-Za-eghj-npr-z]/}" ] && {
@@ -181,7 +199,7 @@ xj_jar_path="${xj_jar_path/'-src.'/.}";
 case $1 in
     start)
         __xj_test_command java || exit 1;
-        __xj_test_command gdb || :;
+        __xj_test_command reredirect || :;
         __xj_test_command netstat || :;
         __xj_test_command readlink || :;
         __xj_test_workspace;
@@ -227,19 +245,22 @@ case $1 in
         # echo "$@" > "$xj_args_file";
         xj_jar_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
 
-        if [ "$XJ_MAIN_CLASS_PATH" ]; then
-            set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
-        else
-            set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
-        fi
+        xj_user=`ls -l "$xj_jar_dir"/*.jar 2>/dev/null | awk '{if(NR == 1) print $3}'`;
+        [ "$xj_user" ] || {
+            printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' not work directory.\n" "$xj_jar_dir" >&2;
+            exit 1
+        }
 
-        if [ "$xj_jar_log_prefix" ]; then
-            __xj_main "$@" | awk '{print '"${xj_jar_log_prefix}"';fflush(stdout)}' >> "$xj_jar_log_file" &
-        else
-            __xj_main "$@" >> "$xj_jar_log_file" &
-        fi
+        export xj_jar_path xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH;
+
+        su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file";
 
         [ "$HISTCONTROL" -a ! "$TEAMCITY_VERSION" ] && {
+            if [ "$XJ_MAIN_CLASS_PATH" ]; then
+                set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+            else
+                set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+            fi
             printf "\033[34mjava %s\033[0m >> \033[32m%s\033[0m 2>&1 &\n" "$*" $xj_jar_log_file;
             tail -F -n 0 "$xj_jar_log_file" 2>/dev/null | sed -ru 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'
 
@@ -333,7 +354,7 @@ case $1 in
 
     ;;
     redirect)
-        __xj_test_command gdb || exit 1;
+        __xj_test_command reredirect || exit 1;
         __xj_test_command readlink || exit 1;
         [ "$xj_java_pid" ] || {
             printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] not running.\n" $xj_jar_name, >&2;
@@ -385,7 +406,7 @@ case $1 in
     ;;
     --cron)
         __xj_test_command crontab || exit 1;
-        __xj_test_command gdb || exit 1;
+        __xj_test_command reredirect || exit 1;
         __xj_test_command readlink || exit 1;
         shift;
         [ -d "$1" ] || {
