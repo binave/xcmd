@@ -132,6 +132,7 @@ __xj_redirect() {
 # print open("$2", 1)
 # quit
 # GDB
+    # # https://github.com/jerome-pouiller/reredirect
     reredirect -N -m "$2" $1
 
 }
@@ -265,8 +266,8 @@ case $1 in
         # echo "$@" > "$xj_args_file" && chown $xj_user:$xj_group "$xj_args_file";
         xj_jar_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
 
-        if [ -s $XJ_MINUS_1_ARG ]; then
-            [ -x $XJ_MINUS_1_ARG ] || {
+        if [ "$XJ_MINUS_1_ARG" -a -s "$XJ_MINUS_1_ARG" ]; then
+            [ -x "$XJ_MINUS_1_ARG" ] || {
                 printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' not have executable permissions.\n" "$XJ_MINUS_1_ARG" >&2;
                 exit 1
             };
