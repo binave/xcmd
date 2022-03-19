@@ -86,6 +86,13 @@ __xj_test_zip_head() {
     exit
 }
 
+__xj_permission() {
+    [ $UID == 0 ] || {
+        printf "[\033[1;31mERROR\033[0m] Permission denied, try using '\033[32msudo %s\033[0m' command.\n" "${0##*/} $@" >&2;
+        exit 1
+    }
+}
+
 __xj_help() {
 
         printf "
@@ -218,6 +225,7 @@ __xj_main() {
 
     case $1 in
         start)
+            __xj_permission "$@";
             __xj_test_command java || exit 1;
             __xj_test_command reredirect || :;
             __xj_test_command netstat || :;
@@ -309,6 +317,7 @@ __xj_main() {
 
         ;;
         stop)
+            __xj_permission "$@";
             __xj_test_workspace;
             [ "$xj_java_pid" ] || { printf "name:\033[1m%-26s\033[0m not running.\n" $xj_jar_name; exit 1; } >&2;
             if [ "$2" == "-f" -o "${XJ_JAR_ARGS/--spring\.config\.location=/}" == "$XJ_JAR_ARGS" ]; then
@@ -331,6 +340,7 @@ __xj_main() {
 
         ;;
         restart)
+            __xj_permission "$@";
             __xj_test_command java || exit 1;
             __xj_test_workspace;
             shift;
@@ -357,6 +367,7 @@ __xj_main() {
         ;;
         live)
             {
+                __xj_permission "$@";
                 __xj_test_command java || exit 1;
                 mkdir -pv "$XJ_LIVE_LOG_DIR";
                 __xj_test_workspace;
@@ -376,6 +387,7 @@ __xj_main() {
 
         ;;
         redirect)
+            __xj_permission "$@";
             __xj_test_command reredirect || exit 1;
             __xj_test_command readlink || exit 1;
             [ "$xj_java_pid" ] || {
@@ -429,6 +441,7 @@ __xj_main() {
 
         ;;
         --cron)
+            __xj_permission "$@";
             __xj_test_command crontab || exit 1;
             __xj_test_command reredirect || exit 1;
             __xj_test_command readlink || exit 1;
@@ -466,11 +479,13 @@ __xj_main() {
         [ "$UID" == "0" ] || printf "
 visudo:
     cat >> \033[32m/etc/sudoers\033[0m <<-EOF\033[7m
+Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin
+
 # Cmnd alias specification
-Cmnd_Alias JAR_RUNNER = $0
+Cmnd_Alias  JAR_RUNNER = $0
 
 # User privilege specification
-$USER     ALL=(ALL) NOPASSWD: JAR_RUNNER
+$USER       ALL=(ALL)    NOPASSWD: JAR_RUNNER
 \033[0mEOF
 " >&2;
 
@@ -511,6 +526,5 @@ JAR_ARGS=' --prefix=/xxx'
     esac
 
 }
-
 
 __xj_main "$@"
