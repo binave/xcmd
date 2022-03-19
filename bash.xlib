@@ -37,10 +37,10 @@ GDB
 }
 
 _is_zip_file() {
-    local xj_file_head XJ_ZIP_HEAD;
-    printf -v XJ_ZIP_HEAD PK\\x03\\x04;
-    read xj_file_head < "$1" 2>/dev/null;
-    [ "$XJ_ZIP_HEAD" == "${xj_file_head:0:4}" ] || return 1;
+    local file_head ZIP_HEAD_BYTES;
+    printf -v ZIP_HEAD_BYTES PK\\x03\\x04;
+    read file_head < "$1" 2>/dev/null;
+    [ "$ZIP_HEAD_BYTES" == "${file_head:0:4}" ] || return 1;
     return 0
 }
 
