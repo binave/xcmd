@@ -162,7 +162,7 @@ __xj_test_single_process() {
 }
 
 __xj_load_config() {
-    [ -s "$1" ] && eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$|;[[:space:]]*$/, "", $1); if(match($1, /^[^=]+="/)){sub(/="/, "=", $1); sub(/"$/, "", $1)}; gsub(/[`"]|\$\(/, "\\\\&", $1); printf "export XJ_"; if(match($1, /^[^=]+='\''/)) { print $1 } else print gensub(/=/, "&\"", 1, $1) "\""}' "$1");
+    [ -s "$1" ] && eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$|;[[:space:]]*$/, "", $1); if(match($1, /^[^=]+="/)){sub(/="/, "=", $1); sub(/"$/, "", $1)}; gsub(/[`"\\]|\$\(/, "\\\\&", $1); printf "export XJ_"; if(match($1, /^[^=]+='\''/)) { print $1 } else print gensub(/=/, "&\"", 1, $1) "\""}' "$1");
 }
 
 __xj_main() {
