@@ -13,6 +13,9 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+# unset functions
+unset $( set | awk '/^__xj_[0-9a-z_]+[[:space:]]\(/{printf " " $1}');
+
 __xj_run () {
     # todo XJ_JAR_ARGS support ""
     if [ "$XJ_MAIN_CLASS_PATH" ]; then
@@ -25,8 +28,10 @@ __xj_run () {
 
     (
         export SHELL=/sbin/nologin;
+        readonly SHELL;
         if [ "$xj_jar_log_prefix" ]; then
             {
+                # unset environment variables and functions
                 unset $( set | awk -F '[=[:space:]]' '/^(__)?(XJ|xj)_[0-9A-Za-z_]+(=|[[:space:]]\()/{printf " " $1}');
                 nohup < /dev/null "$@"
             } 2>&1 | awk '{print '"$xj_jar_log_prefix"';fflush(stdout)}' &
@@ -168,7 +173,7 @@ __xj_load_config() {
 __xj_main() {
     : ${XJ_LOCAL_XJAR_CONFIG_NAME:='.xjarconf'}
 
-    # clear environment variables
+    # unset environment variables
     unset CLASSPATH JAVA_HOME $( set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}');
 
     __xj_load_config /etc/xjar.conf;
@@ -283,6 +288,8 @@ __xj_main() {
 
             export xj_jar_path xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
 
+            touch "$xj_jar_log_file";
+            chown $xj_user:$xj_group "$xj_jar_log_file";
             su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file";
 
             [ "$HISTCONTROL" -a ! "$TEAMCITY_VERSION" ] && {
@@ -407,6 +414,7 @@ __xj_main() {
                         break
                     };
                 done < <(ps -ef | awk '/strftime\(/{system("readlink --canonicalize /proc/" $2 "/fd/0")}' | awk -F '/' '{print $3, $5}')
+                # if not found awk process by pipe, override stdout and stderr by text file.
             fi
 
             __xj_redirect $xj_pid "$xj_jar_log_file" $xj_user:$xj_group || {
@@ -441,7 +449,6 @@ __xj_main() {
 
         ;;
         --cron)
-            __xj_permission "$@";
             __xj_test_command crontab || exit 1;
             __xj_test_command reredirect || exit 1;
             __xj_test_command readlink || exit 1;
