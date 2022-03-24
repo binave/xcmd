@@ -388,7 +388,7 @@ __xj_main() {
                 else
                     printf "restart: ";
                     free -h | awk '/Mem:/{printf "u/a: %s/%s\n", $3, $2}';
-                    export TEAMCITY_VERSION=none HISTCONTROL=;
+                    export TEAMCITY_VERSION=none TERM=dumb;
                     nohup < /dev/null bash "$0" restart >/dev/null 2>&1 &
 
                 fi
@@ -407,12 +407,12 @@ __xj_main() {
             __xj_test_workspace;
             __xj_test_single_process;
             # test awk prefix
-            xj_jar_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-            xj_java_fd="$(readlink --canonicalize /proc/$xj_java_pid/fd/1)";
+            xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
             xj_pid=$xj_java_pid;
-            if [ "${xj_java_fd/\/pipe:\[/}" != "$xj_java_fd" ]; then
+            xj_fd_1="$(readlink --canonicalize /proc/$xj_pid/fd/1)";
+            if [ "${xj_fd_1/\/pipe:\[/}" != "$xj_fd_1" ]; then
                 while read xj_awk_pid xj_awk_pipe; do
-                    [ "${xj_java_fd%"$xj_awk_pipe"}" == "$xj_java_fd" ] || {
+                    [ "${xj_fd_1%"$xj_awk_pipe"}" == "$xj_fd_1" ] || {
                         xj_pid=$xj_awk_pid;
                         break
                     };
@@ -420,10 +420,12 @@ __xj_main() {
                 # if not found awk process by pipe, override stdout and stderr by text file.
             fi
 
-            __xj_redirect $xj_pid "$xj_jar_log_file" $xj_user:$xj_group || {
-                printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] target log file '$xj_jar_log_file' exist and not empty.\n" $xj_jar_name, >&2;
+            __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
+                printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] target log file '$xj_jar_new_log_file' exist and not empty.\n" $xj_jar_name, >&2;
                 exit 1
             }
+
+            chmod a-w "$(date -d -24\ hour +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)" 2>/dev/null;
 
         ;;
         --dir|-d)
@@ -437,7 +439,7 @@ __xj_main() {
             # make sure path exist and not match case
             while [ -d "$1" -a "${__args__/ $1 /}" == "$__args__" ]; do __dir__[${#__dir__[@]}]="$1"; shift; done
             unset __args__ xj_act;
-            export TEAMCITY_VERSION=none HISTCONTROL=;
+            export TEAMCITY_VERSION=none TERM=dumb;
             while read __sh__; do
                 (
                     cd "`dirname "$__sh__"`";
@@ -456,6 +458,10 @@ __xj_main() {
             __xj_test_command reredirect || exit 1;
             __xj_test_command readlink || exit 1;
             shift;
+            [ "$1" ] || {
+                printf "[\033[1;31mERROR\033[0m] directory path not set.\n" >&2;
+                exit 1
+            }
             [ -d "$1" ] || {
                 printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' server directory must exist.\n" $1 >&2;
                 exit 1
