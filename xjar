@@ -351,7 +351,7 @@ __xj_main() {
             else
                 xj_sigspec=15;
             fi
-            kill -$xj_sigspec $xj_java_pid;
+            kill -$xj_sigspec $xj_java_pid $(__xj_pipe_pid $xj_java_pid);
             sleep 0.5;
             xj_wait_limit=30;
             while ps -p $xj_java_pid >/dev/null; do
