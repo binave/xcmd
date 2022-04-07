@@ -132,6 +132,22 @@ e.g.
 
 }
 
+# awk strftime
+__xj_pipe_pid () {
+    [ "$1" ] || return 1;
+    local xj_awk_pid xj_awk_pipe xj_fd_1="$(readlink --canonicalize /proc/$1/fd/1)";
+    if [ "${xj_fd_1/\/pipe:\[/}" != "$xj_fd_1" ]; then
+        while read xj_awk_pid xj_awk_pipe; do
+            [ "${xj_fd_1%"$xj_awk_pipe"}" == "$xj_fd_1" ] || {
+                printf $xj_awk_pid;
+                return 0
+            };
+        done < <(ps -ef | awk '/strftime\(/{system("readlink --canonicalize /proc/" $2 "/fd/0")}' | awk -F '/' '{print $3, $5}')
+        # if not found awk process by pipe, override stdout and stderr by text file.
+    fi
+    return 1
+}
+
 __xj_redirect() {
     [ -s "$2" ] && return 1;
     mkdir -p "${2%/*}" || return 1;
@@ -408,18 +424,7 @@ __xj_main() {
             __xj_test_single_process;
             # test awk prefix
             xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-            xj_pid=$xj_java_pid;
-            xj_fd_1="$(readlink --canonicalize /proc/$xj_pid/fd/1)";
-            if [ "${xj_fd_1/\/pipe:\[/}" != "$xj_fd_1" ]; then
-                while read xj_awk_pid xj_awk_pipe; do
-                    [ "${xj_fd_1%"$xj_awk_pipe"}" == "$xj_fd_1" ] || {
-                        xj_pid=$xj_awk_pid;
-                        break
-                    };
-                done < <(ps -ef | awk '/strftime\(/{system("readlink --canonicalize /proc/" $2 "/fd/0")}' | awk -F '/' '{print $3, $5}')
-                # if not found awk process by pipe, override stdout and stderr by text file.
-            fi
-
+            xj_pid=$(__xj_pipe_pid $xj_java_pid) || xj_pid=$xj_java_pid;
             __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
                 printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] target log file '$xj_jar_new_log_file' exist and not empty.\n" $xj_jar_name, >&2;
                 exit 1
