@@ -149,6 +149,7 @@ __xj_pipe_pid () {
 }
 
 __xj_redirect() {
+    [ "$(readlink --canonicalize /proc/$1/fd/1)" == "$2" ] && return 0;
     [ -s "$2" ] && return 1;
     mkdir -p "${2%/*}" || return 1;
     touch "$2";
@@ -531,7 +532,7 @@ JAR_ARGS=' --config.location=./application.yml'
 \033[0mEOF
 
 Local config:
-    cat > \033[32m.xjarconf\033[0m <<-EOF\033[7m
+    cat > \033[32m$XJ_LOCAL_XJAR_CONFIG_NAME\033[0m <<-EOF\033[7m
 # JAR_LOG_DIR=/var/log/java/xxx/console; # Deprecated
 # LOG_PREFIX='%%F %%T,'
 DEBUG_PORT=9000;
