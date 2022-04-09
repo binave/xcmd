@@ -395,7 +395,10 @@ __xj_main() {
         ;;
         info)
             __xj_test_workspace;
-            awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre ": " $i "=$XJ_" $i "\"")}}}' "$0" | sort
+            (
+                eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) printf " " $i}}' "$0"`
+                awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre ": " $i "=$XJ_" $i "\"")}}}' "$0" | sort
+            )
 
         ;;
         live)
