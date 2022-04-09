@@ -190,6 +190,15 @@ __xj_load_config() {
     [ -s "$1" ] && eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$|;[[:space:]]*$/, "", $1); if(match($1, /^[^=]+="/)){sub(/="/, "=", $1); sub(/"$/, "", $1)}; gsub(/[`"\\]|\$\(/, "\\\\&", $1); printf "export XJ_"; if(match($1, /^[^=]+='\''/)) { print $1 } else print gensub(/=/, "&\"", 1, $1) "\""}' "$1");
 }
 
+__xj_java_args() {
+    if [ "$XJ_MAIN_CLASS_PATH" ]; then
+        set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+    else
+        set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+    fi
+    printf '%s' "$*"
+}
+
 __xj_main() {
     # unset environment variables
     unset CLASSPATH JAVA_HOME $( set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}');
@@ -314,12 +323,7 @@ __xj_main() {
             su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file";
 
             [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && {
-                if [ "$XJ_MAIN_CLASS_PATH" ]; then
-                    set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
-                else
-                    set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
-                fi
-                printf "\033[34mjava %s\033[0m >> \033[32m%s\033[0m 2>&1 &\n" "$*" $xj_jar_log_file;
+                printf "nohup < /dev/null \033[34mjava %s\033[0m >> \033[32m%s\033[0m 2>&1 &\n" "$(__xj_java_args)" "$xj_jar_log_file";
                 tail -F -n 0 "$xj_jar_log_file" 2>/dev/null | sed -ru 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'
 
             }
@@ -396,10 +400,13 @@ __xj_main() {
         info)
             __xj_test_workspace;
             (
-                printf '"cron_expression": "%s"\n' "`crontab -l | awk -F \# '/'"${0//\//\\/}"'/{print $1}'`"
-                eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) printf " " $i}}' "$0"`
-                awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre ": " $i "=$XJ_" $i "\"")}}}' "$0" | sort
-            )
+                printf '*.CRON_EXPRESSION: %s\n' "`crontab -l | awk -F \# '/'"${0//\//\\/}"'/{print $1}'`";
+                printf '%s.JAR_FILE: %s\n' "${PWD##*/}" "$xj_jar_path";
+                printf '%s.START_COMMAND: nohup < /dev/null java %s >> %s 2>&1 &\n' "${PWD##*/}" "$(__xj_java_args)" "$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+                printf '%s.WORKING_DIRECTORY: %s\n' "${PWD##*/}" "$PWD";
+                eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) printf " " $i}}' "$0"`;
+                awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre "." $i ": $XJ_" $i "\"")}}}' "$0"
+            ) | sort
 
         ;;
         live)
