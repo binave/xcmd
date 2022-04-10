@@ -106,21 +106,28 @@ usage: ${0##*/} [param...] \033[1m[option]\033[0m [args...]
 
 param:
     -d | --dir   path [path...] \033[1m[option]\033[0m  batch run option.
-    --cron       [path]                   auto redirect log file every day.
     -h | --help                           print full help info.
 
 \033[1moption\033[0m:
     start   [-D|--debug [port]]     start jar if not run. (support debug)
+            [--live]                restart jar if not run,
+                                    and logging live every 10 minutes.
     stop    [-f]                    stop jar process. (force stop)
-    log     [lines|-[days]]         print last n lines and n days before log. (default $XJ_LOG_PRINT_LAST_LINES lines)
+    log     [[lines] -[days]]       print last n lines and n days before log. (default $XJ_LOG_PRINT_LAST_LINES lines)
                                 e.g.
                                     ${0##*/} log 100 -0 # today the last 100 lines.
+
+            [--redirect]            redirect stdout and stderr file
+                                e.g.
+                                    ${0##*/} log --redirect
+
+            [--cron [path]]         auto redirect log file every day.
+                                e.g.
+                                    ${0##*/} log --cron /var/run
+
     restart [-D|--debug [port]]     restart jar process. (support debug)
     status                          show process info.
     info                            show setting.
-    live                            start jar if not run,
-                                    and logging live every 10 minutes.
-    redirect                        redirect stdout and stderr file
 
 e.g.
     xjar -d .
@@ -264,10 +271,29 @@ __xj_main() {
         start)
             __xj_permission "$@";
             __xj_test_command java || exit 1;
+            __xj_test_workspace;
+
+            [ "$2" == "--live" ] && {
+                mkdir -p "$XJ_LIVE_LOG_DIR";
+                if [ "$xj_java_pid" -a "${xj_java_pid/[^0-9]/}" == "$xj_java_pid" ]; then
+                    # print every 10 minutes
+                    [ $((1`date +%M` % 10)) == 0 ] && printf "%s\n" live
+
+                else
+                    printf "restart: ";
+                    free -h | awk '/Mem:/{printf "u/a: %s/%s\n", $3, $2}';
+                    export TEAMCITY_VERSION=none TERM=dumb;
+                    nohup < /dev/null bash "$0" restart >/dev/null 2>&1 &
+
+                fi
+
+            } 2>&1 | awk -v dir_prefix="$XJ_LIVE_LOG_DIR" -v arg_name=$xj_jar_name \
+                '{printf "%s, %-26s %s\n" ,strftime("%F %T"), arg_name ",", $0 >> strftime(dir_prefix "/live_%Y%m%d.log");fflush(stdout)}' && \
+                    exit 0
+
             __xj_test_command reredirect || :;
             __xj_test_command netstat || :;
             __xj_test_command readlink || :;
-            __xj_test_workspace;
             __xj_test_single_process;
             [ "$xj_java_pid" ] && { printf "name:\033[1m%-26s\033[0m is running.\n" $xj_jar_name; exit 1; } >&2;
             shift;
@@ -333,21 +359,86 @@ __xj_main() {
         ;;
         log)
             __xj_test_workspace;
-            shift;
-            [ "$1" == "${1/-[0-9]/}" ] || set -- ${2:-$XJ_LOG_PRINT_LAST_LINES} $1;
-            xj_jar_log_file="$(date -d "${2:-0} days" +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+            case $2 in
+                ""|[0-9]*|-[0-9]*)
+                    shift;
+                    [ "$1" == "${1/-[0-9]/}" ] || set -- ${2:-$XJ_LOG_PRINT_LAST_LINES} $1;
+                    xj_jar_log_file="$(date -d "${2:-0} days" +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
 
-            if [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && [ ! "$2" ]; then
-                set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
+                    if [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && [ ! "$2" ]; then
+                        set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
 
-            else
-                set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
-                printf "\n"
+                    else
+                        set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
+                        printf "\n"
 
-            fi
+                    fi
 
-            printf "==> \033[32m%s\033[0m <==\n" $xj_jar_log_file;
-            tail $@ "$xj_jar_log_file" 2>/dev/null | sed -ru 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'
+                    printf "==> \033[32m%s\033[0m <==\n" $xj_jar_log_file;
+                    tail $@ "$xj_jar_log_file" 2>/dev/null | sed -ru 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'
+
+                ;;
+                --redirect)
+                    __xj_permission "$@";
+                    __xj_test_command reredirect || exit 1;
+                    __xj_test_command readlink || exit 1;
+                    [ "$xj_java_pid" ] || {
+                        [ "$TERM" == "dumb" ] || printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] not running.\n" $xj_jar_name, >&2;
+                        exit 1
+                    };
+                    __xj_test_single_process;
+                    # test awk prefix
+                    xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+                    xj_pid=$(__xj_pipe_pid $xj_java_pid) || xj_pid=$xj_java_pid;
+                    __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
+                        printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] target log file '$xj_jar_new_log_file' exist and not empty.\n" $xj_jar_name, >&2;
+                        exit 1
+                    }
+
+                    chmod a-w "$(date -d -24\ hour +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)" 2>/dev/null;
+
+                ;;
+                --cron)
+                    __xj_test_command crontab || exit 1;
+                    __xj_test_command reredirect || exit 1;
+                    __xj_test_command readlink || exit 1;
+                    shift; shift;
+                    [ "$1" ] || {
+                        printf "[\033[1;31mERROR\033[0m] directory path not set.\n" >&2;
+                        exit 1
+                    }
+                    [ -d "$1" ] || {
+                        printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' server directory must exist.\n" $1 >&2;
+                        exit 1
+                    };
+                    # todo /etc/cron.d/
+                    xj_cron_expression="0 0 * * * sudo $0 -d ${1%/} log --redirect";
+                    xj_cron_text=$(crontab -l 2>/dev/null);
+                    if [ "$xj_cron_text" ]; then
+                        xj_cron_text_trim=$(awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}' <<< "$xj_cron_text");
+                        if [ "${xj_cron_text_trim/$xj_cron_expression/}" == "$xj_cron_text_trim" ]; then
+                            printf '%s\n%s\n' "$xj_cron_text" "$xj_cron_expression" | crontab -
+                        fi
+                    else
+                        printf '# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * command to be executed
+\n%s\n
+' "$xj_cron_expression" | crontab -
+
+                    fi
+                    crontab -l
+
+                ;;
+                *)
+                    printf "[\033[1;31mERROR\033[0m] Invalid option: log '\033[33m%s\033[0m'\n" "$2" >&2
+                    exit 1
+                ;;
+            esac
 
         ;;
         stop)
@@ -410,48 +501,6 @@ __xj_main() {
             ) | sort
 
         ;;
-        live)
-            {
-                __xj_permission "$@";
-                __xj_test_command java || exit 1;
-                mkdir -pv "$XJ_LIVE_LOG_DIR";
-                __xj_test_workspace;
-                if [ "$xj_java_pid" -a "${xj_java_pid/[^0-9]/}" == "$xj_java_pid" ]; then
-                    # print every 10 minutes
-                    [ $((1`date +%M` % 10)) == 0 ] && printf "%s\n" live
-
-                else
-                    printf "restart: ";
-                    free -h | awk '/Mem:/{printf "u/a: %s/%s\n", $3, $2}';
-                    export TEAMCITY_VERSION=none TERM=dumb;
-                    nohup < /dev/null bash "$0" restart >/dev/null 2>&1 &
-
-                fi
-            } 2>&1 | awk -v dir_prefix="$XJ_LIVE_LOG_DIR" -v arg_name=$xj_jar_name \
-                    '{printf "%s, %-26s %s\n" ,strftime("%F %T"), arg_name ",", $0 >> strftime(dir_prefix "/live_%Y%m%d.log");fflush(stdout)}'
-
-        ;;
-        redirect)
-            __xj_permission "$@";
-            __xj_test_command reredirect || exit 1;
-            __xj_test_command readlink || exit 1;
-            [ "$xj_java_pid" ] || {
-                [ "$TERM" == "dumb" ] || printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] not running.\n" $xj_jar_name, >&2;
-                exit 1
-            };
-            __xj_test_workspace;
-            __xj_test_single_process;
-            # test awk prefix
-            xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-            xj_pid=$(__xj_pipe_pid $xj_java_pid) || xj_pid=$xj_java_pid;
-            __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
-                printf "name:\033[1m%-26s\033[0m [\033[1;31mERROR\033[0m] target log file '$xj_jar_new_log_file' exist and not empty.\n" $xj_jar_name, >&2;
-                exit 1
-            }
-
-            chmod a-w "$(date -d -24\ hour +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)" 2>/dev/null;
-
-        ;;
         --dir|-d)
             shift;
             [ -d "$1" ] || {
@@ -475,42 +524,6 @@ __xj_main() {
             [ "$xj_act" ] || \
                 printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' no $XJ_LOCAL_XJAR_CONFIG_NAME found, find depth is $XJ_FIND_JAR_MAX_DEPTH.\n" $1 >&2;
             unset __dir__ __sh__
-
-        ;;
-        --cron)
-            __xj_test_command crontab || exit 1;
-            __xj_test_command reredirect || exit 1;
-            __xj_test_command readlink || exit 1;
-            shift;
-            [ "$1" ] || {
-                printf "[\033[1;31mERROR\033[0m] directory path not set.\n" >&2;
-                exit 1
-            }
-            [ -d "$1" ] || {
-                printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' server directory must exist.\n" $1 >&2;
-                exit 1
-            };
-            # todo /etc/cron.d/
-            xj_cron_expression="0 0 * * * sudo $0 -d ${1%/} redirect";
-            xj_cron_text=$(crontab -l 2>/dev/null);
-            if [ "$xj_cron_text" ]; then
-                xj_cron_text_trim=$(awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}' <<< "$xj_cron_text");
-                if [ "${xj_cron_text_trim/$xj_cron_expression/}" == "$xj_cron_text_trim" ]; then
-                    printf '%s\n%s\n' "$xj_cron_text" "$xj_cron_expression" | crontab -
-                fi
-            else
-                printf '# .---------------- minute (0 - 59)
-# |  .------------- hour (0 - 23)
-# |  |  .---------- day of month (1 - 31)
-# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
-# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
-# |  |  |  |  |
-# *  *  *  *  * command to be executed
-\n%s\n
-' "$xj_cron_expression" | crontab -
-
-            fi
-            crontab -l
 
         ;;
         -h|--help)
