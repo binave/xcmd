@@ -19,9 +19,9 @@ unset $( set | awk '/^__xj_[0-9a-z_]+[[:space:]]\(/{printf " " $1}');
 __xj_run () {
     # todo XJ_JAR_ARGS support ""
     if [ "$XJ_MAIN_CLASS_PATH" ]; then
-        set -- java $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+        set -- java $XJ_JAVA_ARGS -cp "$XJ_JAR_FILE" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
     else
-        set -- java $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+        set -- java $XJ_JAVA_ARGS -jar "$XJ_JAR_FILE" $XJ_JAR_ARGS;
     fi
 
     [ -x $XJ_MINUS_1_ARG ] && set -- $XJ_MINUS_1_ARG "$@";
@@ -75,6 +75,7 @@ __xj_run () {
 }
 
 __xj_test_zip_head() {
+    [ -s "$1" ] || return 1;
     local xj_file_head xj_zip_head;
     printf -v xj_zip_head PK\\x03\\x04;
     read xj_file_head < "$1" 2>/dev/null;
@@ -85,8 +86,8 @@ __xj_test_zip_head() {
     return 0
 }
 
-[ "$xj_jar_path" -a -s "$xj_jar_path" ] && {
-    __xj_test_zip_head "$xj_jar_path" || exit 1;
+[ "$XJ_JAR_FILE" -a -s "$XJ_JAR_FILE" ] && {
+    __xj_test_zip_head "$XJ_JAR_FILE" || exit 1;
     __xj_run;
     exit
 }
@@ -175,7 +176,7 @@ __xj_test_command() {
 }
 
 __xj_test_workspace() {
-    [ -s "$xj_jar_path" ] && return 0;
+    [ -s "$XJ_JAR_FILE" ] && return 0;
     printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' not work directory.\n" "$PWD" >&2;
     exit 1
 }
@@ -192,9 +193,9 @@ __xj_load_config() {
 
 __xj_java_args() {
     if [ "$XJ_MAIN_CLASS_PATH" ]; then
-        set -- $XJ_JAVA_ARGS -cp "$xj_jar_path" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+        set -- $XJ_JAVA_ARGS -cp "$XJ_JAR_FILE" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
     else
-        set -- $XJ_JAVA_ARGS -jar "$xj_jar_path" $XJ_JAR_ARGS;
+        set -- $XJ_JAVA_ARGS -jar "$XJ_JAR_FILE" $XJ_JAR_ARGS;
     fi
     printf '%s' "$*"
 }
@@ -228,18 +229,19 @@ __xj_main() {
 
     : ${XJ_LIVE_LOG_DIR:='/var/log/xjar-live'};
 
-    for xj_jar_path in "$PWD/"*.jar; do :; done
-    xj_jar_path="${xj_jar_path/*\**/}"; # jar file not found
-    xj_jar_path="${xj_jar_path/'-sources.'/.}";
-    xj_jar_path="${xj_jar_path/'-src.'/.}";
+    for XJ_JAR_FILE in "$PWD/"*.jar; do
+        [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
+            "${XJ_JAR_FILE/'-sources.'/}${XJ_JAR_FILE/'-src.'/.}" ] && \
+                __xj_test_zip_head "$XJ_JAR_FILE" && break
+    done
+    XJ_JAR_FILE="${XJ_JAR_FILE/*\**/}"; # unset XJ_JAR_FILE if jar file not found
 
-    [ -s "$xj_jar_path" ] && {
-        __xj_test_zip_head "$xj_jar_path" || exit 1;
-        xj_jar_name="${xj_jar_path##*/}";
+    [ -s "$XJ_JAR_FILE" ] && {
+        xj_jar_name="${XJ_JAR_FILE##*/}";
         xj_jar_name="${xj_jar_name%.*}";
         # xj_args_file="$XJ_JAR_LOG_DIR/$xj_jar_name.args";
-        xj_jar_dir="${xj_jar_path%/*}/";
-        xj_user=`ls -l "$xj_jar_path" | awk '{if(NR == 1) printf $3}'`;
+        xj_jar_dir="${XJ_JAR_FILE%/*}/";
+        xj_user=`ls -l "$XJ_JAR_FILE" | awk '{if(NR == 1) printf $3}'`;
         xj_group=$(id -gn ${xj_user:-0,} 2>/dev/null) || {
             printf "[\033[1;31mERROR\033[0m] the file '\033[32m%s.jar\033[0m' owner user '\033[32m%s\033[0m' does not exist.\n" "$xj_jar_name" "$xj_user" >&2;
             exit 1
@@ -316,7 +318,7 @@ __xj_main() {
                 };
             fi
 
-            export xj_jar_path xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            export XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
 
             touch "$xj_jar_log_file";
             chown $xj_user:$xj_group "$xj_jar_log_file";
@@ -400,10 +402,9 @@ __xj_main() {
         info)
             __xj_test_workspace;
             (
+                XJ_WORKING_DIRECTORY="$PWD";
                 printf '*.CRON_EXPRESSION: %s\n' "`crontab -l | awk -F \# '/'"${0//\//\\/}"'/{print $1}'`";
-                printf '%s.JAR_FILE: %s\n' "${PWD##*/}" "$xj_jar_path";
                 printf '%s.START_COMMAND: nohup < /dev/null java %s >> %s 2>&1 &\n' "${PWD##*/}" "$(__xj_java_args)" "$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-                printf '%s.WORKING_DIRECTORY: %s\n' "${PWD##*/}" "$PWD";
                 eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) printf " " $i}}' "$0"`;
                 awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre "." $i ": $XJ_" $i "\"")}}}' "$0"
             ) | sort
