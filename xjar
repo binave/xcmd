@@ -526,12 +526,12 @@ __xj_main() {
                 xj_act=true
             done < <(
                 __xj_recurse() {
-                    for xj_path in "$1"/*; do
-                        [ -f "$xj_path" -a "jar" == "${xj_path##*.}" ] && `__xj_test_zip_head "$xj_path" 2>/dev/null` && {
+                    for xj_path in "$1"/*.jar "$1"/*/; do
+                        [ -f "$xj_path" ] && `__xj_test_zip_head "$xj_path" 2>/dev/null` && {
                             printf '%s\n' "$xj_path";
                             return 0
                         };
-                        [ -d "$xj_path" -a ${2:-0} -lt $XJ_FIND_JAR_MAX_DEPTH ] && __xj_recurse "$xj_path" $(($2 + 1))
+                        [ -d "$xj_path" -a ${2:-0} -lt $XJ_FIND_JAR_MAX_DEPTH ] && __xj_recurse "${xj_path%/}" $(($2 + 1))
                     done
                 }
                 for xj_tmp_dir in "${xj_dirs[@]}"; do __xj_recurse "$xj_tmp_dir"; done
