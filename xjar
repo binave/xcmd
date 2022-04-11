@@ -238,7 +238,7 @@ __xj_main() {
 
     for XJ_JAR_FILE in "$PWD/"*.jar; do
         [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
-            "${XJ_JAR_FILE/'-sources.'/}${XJ_JAR_FILE/'-src.'/.}" ] && \
+            "${XJ_JAR_FILE/[_-\.]'sources'[_-\.]/}${XJ_JAR_FILE/[_-\.]'src'[_-\.]/}" ] && \
                 __xj_test_zip_head "$XJ_JAR_FILE" && break
     done
     XJ_JAR_FILE="${XJ_JAR_FILE/*\**/}"; # unset XJ_JAR_FILE if jar file not found
@@ -501,29 +501,44 @@ __xj_main() {
             ) | sort
 
         ;;
-        --dir|-d)
+        --dir|-d|-r)
             shift;
-            [ -d "$1" ] || {
-                printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' server directory must exist.\n" $1 >&2;
+            xj_tmp_args=" $* ";
+            [ "$xj_tmp_args$xj_tmp_args$xj_tmp_args" == "${xj_tmp_args/ --dir /}${xj_tmp_args/ -d /}${xj_tmp_args/ -r /}" ] || {
+                printf "[\033[1;31mERROR\033[0m] recurse option" >&2;
+                __xj_help;
                 exit 1
             };
-            # all case
-            __args__=$(awk -F \) '/^[[:space:]]*[A-Za-z|-]+)/{gsub(/\|/, " ", $1); printf " %s ", $1}' "$0");
-            # make sure path exist and not match case
-            while [ -d "$1" -a "${__args__/ $1 /}" == "$__args__" ]; do __dir__[${#__dir__[@]}]="$1"; shift; done
-            unset __args__ xj_act;
+            unset xj_dirs xj_tmp_args;
+            [ -d "$1" ] || set -- "$PWD" "$@";
+            # get all case-esac args
+            xj_case_args=$(awk -F \) '/^[[:space:]]*[A-Za-z|-]+)/{gsub(/\|/, " ", $1); printf " %s ", $1}' "$0");
+            # trim "$@", make sure path exist and not match case-esac
+            while [ -d "$1" -a "${xj_case_args/ $1 /}" == "$xj_case_args" ]; do xj_dirs[${#xj_dirs[@]}]="$1"; shift; done
+            unset xj_case_args xj_act;
             export TEAMCITY_VERSION=none TERM=dumb;
-            while read __sh__; do
+            while read xj_jar_dir; do
                 (
-                    cd "`dirname "$__sh__"`";
-                    unset __dir__ __sh__;
+                    cd "`dirname "$xj_jar_dir"`";
+                    unset xj_dirs xj_jar_dir;
                     bash "$0" "$@";
                 )
                 xj_act=true
-            done < <(find "${__dir__[@]}" -maxdepth $XJ_FIND_JAR_MAX_DEPTH -type f -name $XJ_LOCAL_XJAR_CONFIG_NAME);
+            done < <(
+                __xj_recurse() {
+                    for xj_path in "$1"/*; do
+                        [ -f "$xj_path" -a "jar" == "${xj_path##*.}" ] && `__xj_test_zip_head "$xj_path" 2>/dev/null` && {
+                            printf '%s\n' "$xj_path";
+                            return 0
+                        };
+                        [ -d "$xj_path" -a ${2:-0} -lt $XJ_FIND_JAR_MAX_DEPTH ] && __xj_recurse "$xj_path" $(($2 + 1))
+                    done
+                }
+                for xj_tmp_dir in "${xj_dirs[@]}"; do __xj_recurse "$xj_tmp_dir"; done
+            );
             [ "$xj_act" ] || \
-                printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' no $XJ_LOCAL_XJAR_CONFIG_NAME found, find depth is $XJ_FIND_JAR_MAX_DEPTH.\n" $1 >&2;
-            unset __dir__ __sh__
+                printf "[\033[1;31mERROR\033[0m] '\033[32m%s\033[0m' no jarfile found, find depth is $XJ_FIND_JAR_MAX_DEPTH.\n" $1 >&2;
+            unset xj_dirs xj_jar_dir
 
         ;;
         -h|--help)
@@ -575,7 +590,8 @@ JAR_ARGS=' --prefix=/xxx'
         ;;
         *)
             printf "[\033[31mERROR\033[0m] invalid option '\033[33m$1\033[0m'.\n" >&2;
-            __xj_help
+            __xj_help;
+            exit 1
         ;;
     esac
 
