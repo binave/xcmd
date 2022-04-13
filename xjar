@@ -116,6 +116,7 @@ param:
     log     [[lines] -[days]]       print last n lines and n days before log. (default $XJ_LOG_PRINT_LAST_LINES lines)
                                 e.g.
                                     ${0##*/} log 100 -0 # today the last 100 lines.
+                                    ${0##*/} log 500 -0 | grep -B 5 -A 15 -i error # search error log
 
             [--redirect]            redirect stdout and stderr file
                                 e.g.
@@ -127,6 +128,9 @@ param:
 
     restart [-D|--debug [port]]     restart jar process. (support debug)
     status  [-v]                    show process info (and threads info).
+                                e.g.
+                                    ${0##*/} status -v | sort -k 5
+
     info                            show setting.
 
 e.g.
@@ -522,7 +526,7 @@ __xj_main() {
             __xj_test_workspace;
             (
                 XJ_WORKING_DIRECTORY="$PWD";
-                printf '*.CRON_EXPRESSION: %s\n' "`crontab -l | awk -F \# '/'"${0//\//\\/}"'/{print $1}'`";
+                printf '*.CRON_EXPRESSION: %s\n' "$(crontab -l | awk -F \# '/'"${0//\//\\/}"'[[:space:]]/{print $1}')";
                 printf '%s.START_COMMAND: nohup < /dev/null java %s >> %s 2>&1 &\n' "${PWD##*/}" "$(__xj_java_args)" "$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
                 eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) printf " " $i}}' "$0"`;
                 awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! m[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre "." $i ": $XJ_" $i "\"")}}}' "$0"
@@ -591,7 +595,7 @@ Globle config:
 FIND_JAR_MAX_DEPTH=2;
 # LOG_PRINT_LAST_LINES=69
 # LOCAL_XJAR_CONFIG_NAME=.xjarconf
-# MINUS_1_ARG=./xjar
+# MINUS_1_ARG=./run.sh
 JAVA_ARGS=' -Xmx1024m'
 JAVA_ARGS+=' -Xms1024m'
 \033[0mEOF
