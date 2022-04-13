@@ -42,33 +42,6 @@ __xj_run () {
 
         fi
 
-        # # open port
-        # xj_java_pid=$!;
-        # {
-        #     firewall-cmd --state >/dev/null 2>/dev/null || exit 1;
-        #     which netstat >/dev/null 2>/dev/null || exit 1;
-        #     {
-        #         firewall-cmd --list-port;
-        #         netstat -lnp;
-        #     } | awk 'BEGIN{update=""};{
-        #         if (/\/(tc|ud)p/) {
-        #             for (i=1; i<=NF; i++) port[$i]++
-
-        #         } else if (/[^0-9]'$xj_java_pid'\/java/) {
-        #             sub(/.*:/, "", $4);
-        #             sub(/[46]$/, "", $1);
-        #             if (!port[$4 "/" $1]) {
-        #                 update="true";
-        #                 printf "open port \033[1m%s\033[0m/%s ", $4, $1;
-        #                 system("firewall-cmd --zone=public --add-port=" $4 "/" $1 " --permanent;");
-
-        #             } # else printf "port \033[1m%s\033[0m/%s already open.\n", $4, $1
-
-        #         }
-        #     }
-        #     END{if(update) system("firewall-cmd --reload >/dev/null")}'
-        #     # firewall-cmd --zone=public --remove-port=$port/$proto --permanent
-        # } &
     )
     exit 0
 
@@ -472,9 +445,6 @@ __xj_main() {
             __xj_test_command java || exit 1;
             __xj_test_workspace;
             shift;
-            # xj_tmp_args=$(cat "$xj_args_file" 2>/dev/null);
-            # [ ! "$1" ] && [ "$xj_tmp_args" ] && set -- $xj_tmp_args;
-            # unset xj_tmp_args;
             bash "$0" stop;
             bash "$0" start "$@"
 
@@ -510,10 +480,10 @@ __xj_main() {
                     }
                 }
                 END{printf "\n"}' - /proc/net/{tcp,tcp6,udp,udp6}
-                [ "$2" == "-v" ] && ps -T -o tid,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
+                [ "$2" == "-v" ] && ps -T -o tid,maj_flt,min_flt,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
                     awk -v pre=${PWD##*/}, 'NR > 1 {
-                        printf "name:\033[1m%-26s\033[0m tid:\033[1m%-6s\033[0m core:\033[1m%-4s\033[0m cpu:\033[1m%-6s\033[0m kefunc:\033[1m%-20s\033[0m tname:",
-                            pre, $1 ",", $2 ",", $3 "%,", $4 ","; for(i=5; i<=NF; i++) printf "\033[1m%s ", $i; printf "\033[0m\n"
+                        printf "name:\033[1m%-26s\033[0m tid:\033[1m%-6s\033[0m flt:\033[1m%-8s\033[0m core:\033[1m%-4s\033[0m cpu:\033[1m%-6s\033[0m kfun:\033[1m%-20s\033[0m exec:",
+                            pre, $1 ",", $2 "+" $3 ",", $4 ",", $5 "%,", gensub("-", "(Running)", 1, $6) ","; for(i=7; i<=NF; i++) printf "\033[1m%s ", $i; printf "\033[0m\n"
                     }'
 
             else
