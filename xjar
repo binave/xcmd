@@ -292,7 +292,6 @@ __xj_main() {
                     exit 0
 
             __xj_test_command reredirect || :;
-            __xj_test_command netstat || :;
             __xj_test_command readlink || :;
             __xj_test_single_process;
             [ "$xj_java_pid" ] && { printf "name:\033[1m%-26s\033[0m is running.\n" $xj_jar_name; exit 1; } >&2;
@@ -478,13 +477,40 @@ __xj_main() {
         ;;
         status|"")
             __xj_test_workspace;
+            __xj_test_command readlink || exit 1;
             __xj_test_single_process;
             if [ "$xj_java_pid" ]; then
-                printf "name:\033[1m%-26s\033[0m pid:\033[1m%-6s\033[0m %-23s" ${PWD##*/}, $xj_java_pid, \
-                $(which netstat >/dev/null 2>&1 && netstat -lnp 2>/dev/null | awk '/[^0-9]'$xj_java_pid'\/java/{if(!e++) printf " port:"; sub(/.*:/, "", $4); sub(/[46]$/, "", $1); printf "\033[1m%s/%s\033[0m,", $4, $1}');
-                ps -p $xj_java_pid -o nlwp,pcpu,pmem,rss | awk 'NR == 2 {printf " threads:\033[1m%-5s\033[0m cpu:\033[1m%-8s\033[0m mem:\033[1m%-8s\033[0m\n", $1 ",", $2 "%,", $3 "% (" sprintf("%.3f", $4/1024/1024) "g)"}'
-                [ "$2" == "-v" ] && ps -T -o tid,psr,pcpu,wchan:19,comm:15 -p $xj_java_pid | \
-                    awk -v pre=${PWD##*/}, 'NR > 1 {printf "name:\033[1m%-26s\033[0m tid:\033[1m%-6s\033[0m core:\033[1m%-4s\033[0m cpu:\033[1m%-6s\033[0m %s:", pre, $1 ",", $2 ",", $3 "%,", $4; for(i=5;i<=NF;i++) printf "\033[1m%s ", $i; printf "\033[0m\n"}'
+                {
+                    ps -o ruser:16,pid,nlwp,pcpu,pmem,rss -p $xj_java_pid
+                    readlink `for fd in /proc/$xj_java_pid/fd/*; do [ -S $fd ] && printf " %s" $fd; done`
+                } | awk -v pre=${PWD##*/} '
+                NR == 2 {
+                    printf "name:\033[1m%-26s\033[0m user:\033[1m%-12s\033[0m pid:\033[1m%-6s\033[0m thrd:\033[1m%-6s\033[0m cpu:\033[1m%-8s\033[0m mem:\033[1m%-8s\033[0m\033[1m%-8s\033[0m port:",
+                        pre ",", $1 ",", $2 ",", $3 ",", $4 "%,", sprintf("%.3f", $6/1024/1024) "g", "(" $5 "%),"
+                    protoc[1]="tcp";
+                    protoc[2]="tcp";
+                    protoc[3]="udp";
+                    protoc[4]="udp";
+                }
+                NR > 2 {
+                    if (/socket:/){
+                        sock_inode[$0]++;
+
+                    } else if ($1$2 == "sllocal_address") {
+                        protoc_idx++;
+
+                    } else if ($17 == 0 && sock_inode["socket:[" $10 "]"]) {
+                        if (comma++) printf ","
+                        printf "\033[1m%-6s\033[0m", strtonum(gensub(/.*:/, "0x", 1, $2)) "/" protoc[protoc_idx];
+
+                    }
+                }
+                END{printf "\n"}' - /proc/net/{tcp,tcp6,udp,udp6}
+                [ "$2" == "-v" ] && ps -T -o tid,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
+                    awk -v pre=${PWD##*/}, 'NR > 1 {
+                        printf "name:\033[1m%-26s\033[0m tid:\033[1m%-6s\033[0m core:\033[1m%-4s\033[0m cpu:\033[1m%-6s\033[0m kefunc:\033[1m%-20s\033[0m tname:",
+                            pre, $1 ",", $2 ",", $3 "%,", $4 ","; for(i=5; i<=NF; i++) printf "\033[1m%s ", $i; printf "\033[0m\n"
+                    }'
 
             else
                 printf "name:\033[1m%-26s\033[0m inactive (\033[31mdead\033[0m).\n" ${PWD##*/}, >&2;
