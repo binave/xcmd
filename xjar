@@ -339,21 +339,39 @@ __xj_main() {
         ;;
         log)
             __xj_test_workspace;
+            __xj_fd_file() { local xj_fd; readlink `for xj_fd in /proc/$1/fd/*; do [ -f $xj_fd ] && printf " %s" $xj_fd; done`; }
             case $2 in
                 ""|[0-9]*|-[0-9]*)
                     shift;
                     [ "$1" == "${1/-[0-9]/}" ] || set -- ${2:-$XJ_LOG_PRINT_LAST_LINES} $1;
-                    xj_jar_log_file="$(date -d "${2:-0} days" +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-
+                    xj_days=${2:-0};
                     if [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && [ ! "$2" ]; then
+                        if [ "$xj_java_pid" ]; then
+                            eval set -- ${1:-$XJ_LOG_PRINT_LAST_LINES} $(
+                                __xj_fd_file $xj_java_pid | awk '/(LOG|log)$/{if(!p[$0]++) l[++n]=$_}END{for(i=length(l); i>0; i--) printf " \"%s\"", l[i]}'
+                            );
+                            [ "$2" ] && { [ "$3" ] || printf "==> \033[32m%s\033[0m <==\n" "$2"; tail -F -n "$@"; exit 0; }
+
+                        fi
                         set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
 
                     else
+                        if [ "$xj_java_pid" ]; then
+                            set -- ${1:-$XJ_LOG_PRINT_LAST_LINES} ${2:-0};
+                            set -- $1 $(
+                                eval find $(
+                                    __xj_fd_file $xj_java_pid | awk '/(LOG|log)$/{sub(/\/[^\/]+$/, ""); if(!p[$0]++) l[++n]=$0}END{for(i=length(l); i>0; i--) printf " \"%s\"", l[i]}'
+                                ) -type f -mtime ${2#-} -iname "*.log"
+                            );
+                            [ "$2" ] && { [ "$3" ] || printf "==> \033[32m%s\033[0m <==\n" "$2"; tail -n "$@"; exit 0; }
+
+                        fi
                         set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
                         printf "\n"
 
                     fi
 
+                    xj_jar_log_file="$(date -d "$xj_days days" +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
                     printf "==> \033[32m%s\033[0m <==\n" $xj_jar_log_file;
                     tail $@ "$xj_jar_log_file" 2>/dev/null | sed -ru 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'
 
@@ -415,13 +433,13 @@ __xj_main() {
 
                 ;;
                 --rm)
+                    __xj_permission "$@";
                     [ "$3" ] || exit 1;
                     [ $3 -lt 1 ] && exit 1;
                     xj_last_mod_days="$3";
                     set --;
                     [ "$xj_java_pid" ] && \
-                        eval set -- $(readlink `for fd in /proc/$xj_java_pid/fd/*; do [ -f $fd ] && printf " %s" $fd; done` | \
-                            awk '/(LOG|log)$/{sub(/\/[^\/]+$/, ""); if(!p[$0]++) printf " \"%s\"", $0}')
+                        eval set -- $(__xj_fd_file $xj_java_pid | awk '/(LOG|log)$/{sub(/\/[^\/]+$/, ""); if(!p[$0]++) printf " \"%s\"", $0}')
                     [ "$1" ] || set -- "$XJ_JAR_LOG_DIR";
 
                     find "$@" -type f -mtime +$xj_last_mod_days -iname "*.log" -printf 'rm -fv "%p" # %TY%Tm%Td\t%s\n' 2>/dev/null | \
@@ -474,7 +492,7 @@ __xj_main() {
             if [ "$xj_java_pid" ]; then
                 {
                     ps -o ruser:16,pid,nlwp,pcpu,pmem,rss -p $xj_java_pid;
-                    readlink `for fd in /proc/$xj_java_pid/fd/*; do [ -S $fd ] && printf " %s" $fd; done`
+                    readlink `for xj_fd in /proc/$xj_java_pid/fd/*; do [ -S $xj_fd ] && printf " %s" $xj_fd; done`
                 } | awk -v pre=${PWD##*/} '
                 NR == 2 {
                     printf "name:\033[1m%-26s\033[0m user:\033[1m%-12s\033[0m pid:\033[1m%-7s\033[0m thrd:\033[1m%-6s\033[0m cpu:\033[1m%-8s\033[0m mem:\033[1m%-8s\033[0m\033[1m%-8s\033[0m port:",
