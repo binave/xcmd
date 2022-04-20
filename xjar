@@ -530,7 +530,7 @@ __xj_main() {
                             printf "\033[1m%-6s\033[0m", strtonum("0x" port_hex) "/" proto "(" untted_port_estd[proto][port_hex] + 0 "/" untted_port_alive[proto][port_hex] + 0 ")";
                         }
                         if (port_send[proto]["size"]) {
-                            if (!tag4send++) printf ", send: ";
+                            if (!tag4send++) printf ", send:";
                             if (comma4send++) printf ",";
                             printf "\033[1m%s\033[0m", proto "(" port_send[proto]["size"] "/" length(port_send[proto]) - 1 ")"
                         }
@@ -561,10 +561,11 @@ __xj_main() {
                                         }
                                     };
                                     sub(/:$/, "", ipv6);
-                                    sub(/^0+/, "0", ipv6);
+                                    sub(/(:0000)+:/, "::", ipv6);
+                                    if (!sub(/^0000::/, "::", ipv6)) sub(/^0+/, "0", ipv6);
                                     gsub(/:0+/, ":0", ipv6);
                                     printf "name:\033[1m%-26s\033[0m proto:\033[1m%-5s\033[0m host:\033[1m%-40s\033[0m port:\033[1m%-6s\033[0m count:\033[1m%s\033[0m\n",
-                                        pre ",", proto ",", tolower(gensub(/:0+([1-9A-F])/, ":\\1", "g", ipv6)) ",", strtonum("0x" substr(addr, 34, 4)) ",", port_send[proto][addr];
+                                        pre ",", proto ",", tolower(gensub(/:0+([1-9A-Fa-f])/, ":\\1", "g", ipv6)) ",", strtonum("0x" substr(addr, 34, 4)) ",", port_send[proto][addr];
                                 }
                             }
                         }
