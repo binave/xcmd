@@ -105,6 +105,13 @@ param:
 
     restart [-D|--debug [port]]     restart jar process. (support debug)
     status  [-v]                    show process info. (and threads info)
+                            exec:   thread_name.
+                            flt:    major_page_faults+minor_page_faults.
+                            kfun:   kernel_function.
+                            lsn:    listen_port/protocol(established_count/link_count).
+                            send:   protocol(link_count/ip_port_count).
+                            thrd:   thread_count.
+                            u:      user.
                                 e.g.
                                     ${0##*/} status -v | sort -k 5
 
