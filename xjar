@@ -353,7 +353,7 @@ __xj_main() {
                             [ "$2" ] && { [ "$3" ] || printf "==> \033[32m%s\033[0m <==\n" "$2"; tail -F -n "$@"; exit 0; }
 
                         fi
-                        set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
+                        set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES}
 
                     else
                         if [ "$xj_java_pid" ]; then
@@ -366,8 +366,7 @@ __xj_main() {
                             [ "$2" ] && { [ "$3" ] || printf "==> \033[32m%s\033[0m <==\n" "$2"; tail -n "$@"; exit 0; }
 
                         fi
-                        set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES};
-                        printf "\n"
+                        set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES}
 
                     fi
 
@@ -493,27 +492,84 @@ __xj_main() {
                 {
                     ps -o ruser:16,pid,nlwp,pcpu,pmem,rss -p $xj_java_pid;
                     readlink `for xj_fd in /proc/$xj_java_pid/fd/*; do [ -S $xj_fd ] && printf " %s" $xj_fd; done`
-                } | awk -v pre=${PWD##*/} '
+                } | awk -v pre=${PWD##*/} -v arg2="$2" '
                 NR == 2 {
-                    printf "name:\033[1m%-26s\033[0m user:\033[1m%-12s\033[0m pid:\033[1m%-7s\033[0m thrd:\033[1m%-6s\033[0m cpu:\033[1m%-8s\033[0m mem:\033[1m%-8s\033[0m\033[1m%-8s\033[0m port:",
+                    printf "name:\033[1m%-26s\033[0m u:\033[1m%-12s\033[0m pid:\033[1m%-7s\033[0m thrd:\033[1m%-6s\033[0m cpu:\033[1m%-8s\033[0m mem:\033[1m%-8s\033[0m\033[1m%-8s\033[0m lsn:",
                         pre ",", $1 ",", $2 ",", $3 ",", $4 "%,", sprintf("%.2f", $6/1024/1024) "g", "(" $5 "%),"
-                    split("tcp tcp udp udp", protoc, /[[:space:]]+/);
+                    split("tcp tcp udp udp", proto_arr, /[[:space:]]+/);
 
                 }
                 NR > 2 {
                     if (/socket:/){
-                        sock_inode[$0]++;
+                        sock_inode[gensub(/[^0-9]+/, "", "g")]++;
 
                     } else if ($1$2 == "sllocal_address") {
-                        protoc_idx++;
+                        file_idx++;
 
-                    } else if ($17 == 0 && sock_inode["socket:[" $10 "]"]) {
-                        if (comma++) printf ","
-                        printf "\033[1m%-6s\033[0m", strtonum(gensub(/.*:/, "0x", 1, $2)) "/" protoc[protoc_idx];
+                    } else if (sock_inode[$10]) {
+                        if($4 == "0A") {
+                            port_listen[proto_arr[file_idx]][gensub(/.*:/, "", 1, $2)]=0;
+
+                        } else if ($4 != "07") {
+                            port_send[proto_arr[file_idx]]["size"]++;
+                            port_send[proto_arr[file_idx]][$3]++;
+
+                        }
+
+                    } else if ($4 ~ /^0[^7A]$/) {
+                        port_hex=gensub(/.*:/, "", 1, $3);
+                        if ($4 == "01") untted_port_estd[proto_arr[file_idx]][port_hex]++;
+                        untted_port_alive[proto_arr[file_idx]][port_hex]++;
 
                     }
                 }
-                END{printf "\n"}' - /proc/net/{tcp,tcp6,udp,udp6};
+                END{
+                    for (proto in port_listen) {
+                        for (port_hex in port_listen[proto]) {
+                            if (comma4listen++) printf ",";
+                            printf "\033[1m%-6s\033[0m", strtonum("0x" port_hex) "/" proto "(" untted_port_estd[proto][port_hex] + 0 "/" untted_port_alive[proto][port_hex] + 0 ")";
+                        }
+                        if (port_send[proto]["size"]) {
+                            if (!tag4send++) printf ", send: ";
+                            if (comma4send++) printf ",";
+                            printf "\033[1m%s\033[0m", proto "(" port_send[proto]["size"] "/" length(port_send[proto]) - 1 ")"
+                        }
+                    }
+                    printf "\n";
+                    if (arg2 == "-v") {
+                        for (proto in port_send) {
+                            for (addr in port_send[proto]) {
+                                len=length(addr);
+                                if (len == 13 || substr(addr, 1, 24) == "0000000000000000FFFF0000") {
+                                    ipv4="";
+                                    period="";
+                                    tmp_addr=len == 37 ? substr(addr, 25, 13) : addr;
+                                    for (i=7; i>0; i-=2) {
+                                        if (period++) ipv4=(ipv4 ".");
+                                        ipv4=(ipv4 strtonum("0x" substr(tmp_addr, i, 2)));
+                                    }
+
+                                    printf "name:\033[1m%-26s\033[0m proto:\033[1m%-5s\033[0m host:\033[1m%-40s\033[0m port:\033[1m%-6s\033[0m count:\033[1m%s\033[0m\n",
+                                        pre ",", proto ",", ipv4 ",", strtonum("0x" substr(tmp_addr, 10, 4)) ",", port_send[proto][addr];
+                                } else if(len == 37) {
+                                    ipv6="";
+                                    for(i=1; i<=32; i+=8) {
+                                        sub_ip=substr(addr, i, 8);
+                                        for (j=7; j>0; j-=2) {
+                                            ipv6=(ipv6 substr(sub_ip, j, 2));
+                                            if(j==5 || j==1) ipv6=(ipv6 ":");
+                                        }
+                                    };
+                                    sub(/:$/, "", ipv6);
+                                    sub(/^0+/, "0", ipv6);
+                                    gsub(/:0+/, ":0", ipv6);
+                                    printf "name:\033[1m%-26s\033[0m proto:\033[1m%-5s\033[0m host:\033[1m%-40s\033[0m port:\033[1m%-6s\033[0m count:\033[1m%s\033[0m\n",
+                                        pre ",", proto ",", tolower(gensub(/:0+([1-9A-F])/, ":\\1", "g", ipv6)) ",", strtonum("0x" substr(addr, 34, 4)) ",", port_send[proto][addr];
+                                }
+                            }
+                        }
+                    }
+                }' - /proc/net/{tcp,tcp6,udp,udp6};
 
                 [ "$2" == "-v" ] && ps -T -o tid,maj_flt,min_flt,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
                     awk -v pre=${PWD##*/}, 'NR > 1 {
