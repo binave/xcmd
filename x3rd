@@ -247,7 +247,7 @@ _x3rd_2flac () {
 ### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##
 _x3rd_play () {
     which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
-    which lib >/dev/null 2>&1 || exit 1; # lib command not found
+    which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
 
     local file_list media=() maxdepth stream_specifier skip=0 ext regex;
 
@@ -255,7 +255,7 @@ _x3rd_play () {
     while [ $# -gt 0 ]; do
         case "$1" in
             -*maxdepth | -d)
-                lib inum $2 && {
+                xlib inum $2 && {
                     maxdepth="-maxdepth $2";
                     shift
                 } || exit 1; # max depth must be a number
@@ -265,13 +265,13 @@ _x3rd_play () {
             ;;
             -*ast | -a)
                 # -ast stream_specifier  #select desired audio stream
-                lib inum $2 && {
+                xlib inum $2 && {
                     stream_specifier="-ast $2";
                     shift
                 } || exit 1; # audio specifier must be a number
             ;;
             -*skip | -j)
-                lib inum $2 && {
+                xlib inum $2 && {
                     skip=$2;
                     shift
                 } || exit 1; # skip must be a number
@@ -328,7 +328,7 @@ _x3rd_play () {
 
     function __play_ff () {
         [ -f "$1" ] || exit 1; # file not exist
-        case "`lib str --lower ${1##*.}`" in
+        case "`xlib str --lower ${1##*.}`" in
             avi|divx|flv|mkv|mp4|mpg|rm|rmvb|vob|wmv)
                 # -ac 2 #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
                 # -sn #disable subtitling
@@ -452,8 +452,8 @@ _x3rd_cam () {
         --show|-s)
             shift;
             which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
-            which lib >/dev/null 2>&1 || exit 1; # lib command not found
-            lib inum $1 || exit 1; # first args error
+            which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
+            xlib inum $1 || exit 1; # first args error
             local device_index fmt framerate video_size
             shift
             while [ "$1" ]; do
