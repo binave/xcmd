@@ -589,11 +589,12 @@ __xj_main() {
             if [ "$xj_java_pid" ]; then
                 {
                     ps -o ruser:16,pid,nlwp,pcpu,pmem,rss -p $xj_java_pid;
-                    readlink `for xj_fd in /proc/$xj_java_pid/fd/*; do [ -S $xj_fd ] && printf " %s" $xj_fd; done`
+                    readlink `for xj_fd in /proc/$xj_java_pid/fd/*; do [ -S $xj_fd ] && printf " %s" $xj_fd; done` 2>/dev/null
                 } | awk -v pre=${PWD##*/} -v arg2="$2" -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" '
                 NR == 2 {
-                    printf "name:"XJ_BOLD"%-26s"XJ_RE" u:"XJ_BOLD"%-12s"XJ_RE" pid:"XJ_BOLD"%-7s"XJ_RE" thrd:"XJ_BOLD"%-6s"XJ_RE" cpu:"XJ_BOLD"%-8s"XJ_RE" mem:"XJ_BOLD"%-8s"XJ_RE XJ_BOLD"%-8s"XJ_RE" lsn:",
-                        pre ",", $1 ",", $2 ",", $3 ",", $4 "%,", sprintf("%.2f", $6/1024/1024) "g", "(" $5 "%),"
+                    printf "name:"XJ_BOLD"%-26s"XJ_RE" u:"XJ_BOLD"%-12s"XJ_RE" pid:"XJ_BOLD"%-7s"XJ_RE" thrd:"XJ_BOLD"%-6s"XJ_RE" cpu:"XJ_BOLD"%-8s"XJ_RE" mem:"XJ_BOLD"%-8s"XJ_RE XJ_BOLD"%+6s"XJ_RE,
+                        pre ",", $1 ",", $2 ",", $3 ",", $4 "%,", sprintf("%.2f", $6/1024/1024) "g", "(" $5 "%)";
+                    pid=$2;
                     split("tcp tcp udp udp", proto_arr, /[[:space:]]+/);
 
                 }
@@ -624,6 +625,7 @@ __xj_main() {
                 END{
                     for (proto in port_listen) {
                         for (port_hex in port_listen[proto]) {
+                            if (!tag4listen++) printf ", lsn:";
                             if (comma4listen++) printf ",";
                             printf XJ_BOLD"%-6s"XJ_RE, strtonum("0x" port_hex) "/" proto "(" untted_port_estd[proto][port_hex] + 0 "/" untted_port_alive[proto][port_hex] + 0 ")";
                         }
@@ -678,7 +680,19 @@ __xj_main() {
 
                 [ "$2" == "-v" ] && {
                     ps -T -o tid,maj_flt,min_flt,etime,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
-                        awk -v pre=${PWD##*/}, -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" 'NR > 1 {
+                        awk -v pid=$xj_java_pid -v pre=${PWD##*/}, -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" 'NR > 1 {
+                            sched_file = "/proc/" pid "/task/" $1 "/sched";
+                            while (getline line < sched_file) {
+                                split(line, arg, /[[:space:]]+/);
+                                if (arg[1] == "se.sum_exec_runtime") {}
+                            }
+                            close(sched_file);
+                            io_file = "/proc/" pid "/task/" $1 "/io";
+                            while (getline line < io_file) {
+                                split(line, arg, /[[:space:]]+/);
+                            }
+                            close(io_file);
+
                             printf "name:"XJ_BOLD"%-26s"XJ_RE" tid:"XJ_BOLD"%-7s"XJ_RE" flt:"XJ_BOLD"%-10s"XJ_RE" time:"XJ_BOLD"%-10s"XJ_RE" core:"XJ_BOLD"%03d"XJ_RE", cpu:"XJ_BOLD"%-8s"XJ_RE" kfun:"XJ_BOLD"%-20s"XJ_RE" exec:",
                                 pre, $1 ",", $2 "+" $3 ",", gensub(/:[0-9]+$/, "", 1, $4) ",", $5, $6 "%,", gensub("-", "(Running)", 1, $7) ","; for(i=8; i<=NF; i++) printf XJ_BOLD"%s ", $i; printf XJ_RE"\n"
                         }';
