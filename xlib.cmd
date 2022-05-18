@@ -3290,9 +3290,14 @@ exit /b 0
 :sub\kms\--odt
 :sub\kms\-o
     if not defined _host exit /b 33 @REM Need ip or host
+    for /f "usebackq tokens=1,2 delims=:" %%a in (
+        '%_host%'
+    ) do set _host=%%a& set _port=%%b
+    if not defined _port set _port=1688
 
     call :regedit\on
     call :odt\init_var
+    if not defined _ospp exit /b 34 @REM not found install
     if not exist "%_ospp%" (
         call :regedit\off
         exit /b 32 @REM ospp.vbs not found
@@ -3307,7 +3312,7 @@ exit /b 0
 
     if not defined _odtver (
         call :regedit\off
-        exit /b 32
+        exit /b 35 @REM get office version failed
     )
 
     @REM Office 2010: http://technet.microsoft.com/en-us/library/ee624355(office.14).aspx
@@ -3348,8 +3353,8 @@ exit /b 0
     for /f "usebackq tokens=1* delims==" %%a in (
         `2^>nul set _gvlk\`
     ) do call :kms\dividing_line %%b && for %%c in (
-                                            ::?"active" ::?"display expires time" ::?"rm key"
-        "/inpkey:%%~na"    "/sethst:%_host%"   /act        /dstatus                  /remhst
+                                                                ::?"active" ::?"display expires time" ::?"rm key"
+        "/inpkey:%%~na"    "/sethst:%_host%"    "/setprt:%_port%"   /act        /dstatus                  /remhst
     ) do for /f "usebackq delims=" %%d in (
         `cscript.exe //nologo //e:vbscript "%_ospp%" %%~c`
     ) do if "%%d" neq "---------------------------------------" if "%%d" neq "---Exiting-----------------------------" if "%%d" neq "---Processing--------------------------" echo.%%d
