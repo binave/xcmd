@@ -48,10 +48,9 @@ __xj_run () {
 }
 
 __xj_test_zip_head() {
-    [ -s "$1" ] || return 1;
     local xj_file_head xj_zip_head;
     printf -v xj_zip_head PK\\x03\\x04;
-    read xj_file_head < "$1" 2>/dev/null;
+    read xj_file_head 2>/dev/null < "$1";
     [ "$xj_zip_head" == "${xj_file_head:0:4}" ] || {
         printf "[${XJ_B_RED}ERROR${XJ_RE}] '$1' not jar file.\n" >&2;
         return 1
@@ -59,7 +58,7 @@ __xj_test_zip_head() {
     return 0
 }
 
-[ "$XJ_JAR_FILE" -a -s "$XJ_JAR_FILE" ] && {
+[ "$XJ_JAR_FILE" ] && {
     __xj_test_zip_head "$XJ_JAR_FILE" || exit 1;
     __xj_run;
     exit
@@ -303,7 +302,9 @@ __xj_main() {
     for XJ_JAR_FILE in "$PWD/"*.jar; do
         [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
             "${XJ_JAR_FILE/[_-\.]'sources'[_-\.]/}${XJ_JAR_FILE/[_-\.]'src'[_-\.]/}" ] && \
-                __xj_test_zip_head "$XJ_JAR_FILE" && break
+                __xj_test_zip_head "$XJ_JAR_FILE" && break;
+        unset XJ_JAR_FILE
+
     done
     XJ_JAR_FILE="${XJ_JAR_FILE/*\**/}"; # unset XJ_JAR_FILE if jar file not found
 
@@ -410,11 +411,11 @@ __xj_main() {
                 };
             fi
 
-            export XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            export XJ_JAR_FILE="${XJ_JAR_FILE//$PWD/.}" xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS="${XJ_JAR_ARGS//$PWD/.}" XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
 
             touch "$xj_jar_log_file";
             chown $xj_user:$xj_group "$xj_jar_log_file";
-            su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file";
+            su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file" || exit 1;
 
             [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && {
                 printf "nohup < /dev/null ${XJ_BLUE}java %s${XJ_RE} >> ${XJ_GREEN}%s${XJ_RE} 2>&1 &\n" "$(__xj_java_args)" "$xj_jar_log_file";
@@ -553,7 +554,7 @@ __xj_main() {
         stop)
             __xj_permission "$@";
             __xj_test_workspace;
-            [ "$xj_java_pid" ] || { printf "name:${XJ_BOLD}%-26s${XJ_RE} not running.\n" $xj_jar_name; exit 1; } >&2;
+            [ "$xj_java_pid" ] || { printf "name:${XJ_BOLD}%-26s${XJ_RE} not running.\n" $xj_jar_name; return 1; } >&2;
             if [ "$2" == "-f" -o "${XJ_JAR_ARGS/--spring\.config\.location=/}" == "$XJ_JAR_ARGS" ]; then
                 xj_sigspec=9;
             else
