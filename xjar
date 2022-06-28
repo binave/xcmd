@@ -300,8 +300,9 @@ __xj_main() {
     : ${XJ_LIVE_LOG_DIR:='/var/log/xjar-live'};
 
     for XJ_JAR_FILE in "$PWD/"*.jar; do
-        [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
-            "${XJ_JAR_FILE/[_-\.]'sources'[_-\.]/}${XJ_JAR_FILE/[_-\.]'src'[_-\.]/}" ] && \
+        [ -f "$XJ_JAR_FILE" ] && \
+            [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
+                "${XJ_JAR_FILE/[_-\.]'sources'[_-\.]/}${XJ_JAR_FILE/[_-\.]'src'[_-\.]/}" ] && \
                 __xj_test_zip_head "$XJ_JAR_FILE" && break;
         unset XJ_JAR_FILE
 
@@ -411,7 +412,7 @@ __xj_main() {
                 };
             fi
 
-            export XJ_JAR_FILE="${XJ_JAR_FILE//$PWD/.}" xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS="${XJ_JAR_ARGS//$PWD/.}" XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            export XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
 
             touch "$xj_jar_log_file";
             chown $xj_user:$xj_group "$xj_jar_log_file";

@@ -204,10 +204,7 @@ __get_pkg () {
 
     {
 
-        printf "Wait...\n"
-
-        store_agent=$(find /private/var/folders -type d -regex ".*/com.apple.appstoreagent/com.apple.appstore" 2>/dev/null);
-
+        printf -v store_agent /private/var/folders/*/*/C/com.apple.appstoreagent/com.apple.appstore;
         printf "Will listen \033[4m%s\033[0m sec.\n" $(($countdown / 5));
 
         # Reg hard link from /private/var/tmp
