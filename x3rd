@@ -244,7 +244,7 @@ _x3rd_2flac () {
     return 0
 }
 
-### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##
+### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##   PLAY_VOLUME               environment variable ##
 _x3rd_play () {
     which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
     which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
@@ -332,10 +332,10 @@ _x3rd_play () {
             avi|divx|flv|mkv|mp4|mpg|rm|rmvb|vob|wmv)
                 # -ac 2 #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
                 # -sn #disable subtitling
-                ffplay -hide_banner $stream_specifier -ac 2 -sn -autoexit -af "volume=0.85" "$1" || return 1
+                ffplay -hide_banner $stream_specifier -ac 2 -sn -autoexit -af "volume=${PLAY_VOLUME:-0.85}" "$1" || return 1
             ;;
             alac|ape|flac|m4a|mp3|ogg|tta|tak|wav|webm|wma)
-                ffplay -hide_banner -nodisp -autoexit -af "volume=0.15" "$1" || return 1
+                ffplay -hide_banner -nodisp -autoexit -af "volume=${PLAY_VOLUME:-0.15}" "$1" || return 1
             ;;
             *)
                 exit 1; # unknown suffix

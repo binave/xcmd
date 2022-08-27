@@ -464,7 +464,7 @@ __remote_tar () {
     return 0
 }
 
-### OS globle setting ##Usage: oset [option] [args...] ##    --version,    -v          Get OS version #    --allow,      -a          Allow all app install #    --hidden,     - [yes|no]  Hidden all privite file or directory #    --re-launch,  -rl         Reset LaunchPad #    --set-launch, -sl [rows] [cols] #                              Setting LaunchPad columes rows#    --uuid,       -u          Get uuid by username. default: [current]#    --sid,        -s          Get sid by username. default: [current]##
+### OS globle setting ##Usage: oset [option] [args...] ##    --version,    -v          Get OS version #    --allow,      -aa         Allow all app install #    --hidden,     - [yes|no]  Hidden all privite file or directory #    --re-launch,  -rl         Reset LaunchPad #    --set-launch, -sl [rows] [cols] #                              Setting LaunchPad columes rows#    --uuid,       -u          Get uuid by username. default: [current]#    --sid,        -s          Get sid by username. default: [current]##
 _xlib_oset () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
     case $1 in
@@ -523,6 +523,7 @@ _xlib_oset () {
             # kill -9 `ps -Axjc | awk /loginwindow/'{print $2}'`;
             # # System Preferences -> Universal Access -> Enable access for assistive devices
             # echo a | sudo tee /var/db/.AccessibilityAPIEnabled
+            # launchctl bootout user/$(id -u $USER)
             printf 'tell application "System Events"
                 log out
             end tell
@@ -573,7 +574,7 @@ _xlib_oset () {
             shift;
             [ -d "$1" ] || exit 1; # app file not set or found.
             sudo spctl --master-disable
-            sudo xattr -d com.apple.quarantine "$1"
+            sudo xattr -r -d com.apple.quarantine "$1"
         ;;
         --list-users)
             dscl . -list /Users UniqueID
