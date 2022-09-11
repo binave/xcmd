@@ -698,6 +698,21 @@ _xlib_drv () {
                 :
             fi
         ;;
+        --list|-l)
+            if [[ $OSTYPE == darwin* ]]; then
+                # /System/Library/Extensions /Library/Extensions
+                kextstat
+            else
+                :
+            fi
+        ;;
+        --refresh|-r)
+            if [[ $OSTYPE == darwin* ]]; then
+                sudo kextcache -prune-staging
+            else
+                :
+            fi
+        ;;
         *)
             exit 1; # invalid option
         ;;
