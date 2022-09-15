@@ -609,7 +609,7 @@ exit /b 0
     if "%~1" neq "" if "%~$path:1" neq "" exit /b 0
     exit /b 1
 
-@REM Test string if Num \* @see lib.cmd *\
+@REM Test string if Num \* @see xlib.cmd *\
 :sub\is\--integer
     if "%~1"=="" exit /b 10
     setlocal
@@ -628,7 +628,7 @@ exit /b 0
     if %_path:~0,1%==d set _code=0
     endlocal & exit /b %_code%
 
-@REM Display Time at [YYYYMMDDhhmmss] \* @see lib.cmd *\
+@REM Display Time at [YYYYMMDDhhmmss] \* @see xlib.cmd *\
 :sub\str\--now
     if "%~1"=="" exit /b 2
     set date=
@@ -704,7 +704,7 @@ exit /b 0
     if defined _err_msg >&2 echo unknown error.& exit /b 1
 
     @REM Foreach func list
-    call :lib\cols _col
+    call :xlib\cols _col
     set /a _i=0, _col/=16
     for /f usebackq^ tokens^=1^,2^ delims^=^=^" %%a in (`
         2^>nul set _prefix_4_auto_complete\%~n1
@@ -785,7 +785,7 @@ exit /b 0
     goto %0
 
 @REM Get cmd cols
-:lib\cols
+:xlib\cols
     for /f "usebackq skip=4 tokens=2" %%a in (`mode.com con`) do (
         if "%~1"=="" (
             echo %%a

@@ -764,7 +764,7 @@ _xlib_vol () {
         --createinstallmedia|-im)
             shift;
             [ -d "$1" ] || exit 1; # target device not found
-            [ -d "$2" ] || set "" "$1" "/Applications/Install";
+            [ -d "$2" ] || set -- "$1" "/Applications/Install";
             while read tmp; do
                 break;
             done < <(find "$2"* -iname "createinstallmedia" 2>/dev/null);
@@ -773,10 +773,16 @@ _xlib_vol () {
                 if [ -f "/macOS Install Data/InstallInfo.plist" ]; then
                     sudo mkdir -p "${tmp%Resources*}SharedSupport";
                     find "/macOS Install Data" -type f -exec sudo ln {} "${tmp%Resources*}SharedSupport" \;
-                else
-                    exit 1; # need to run the 'install app' and exit before 'reboot'
+                # else
+                #     exit 1; # need to run the 'install app' and exit before 'reboot'
                 fi
             };
+            /usr/libexec/PlistBuddy \
+                -c 'Print :CFBundleDisplayName' \
+                -c 'Print :DTSDKName' \
+                -c 'Print :CFBundleShortVersionString' \
+                -c 'Print :DTSDKBuild' \
+                    "${tmp%Resources*}Info.plist" | awk '{printf $0 " "};END{printf "\n"}'
             # sudo "$tmp" --volume "$1" --applicationpath "${tmp%/Contents*}" --nointeraction;
             sudo "$tmp" --volume "$1" --nointeraction;
         ;;
@@ -1346,10 +1352,17 @@ _xlib_prefix () {
 ### Plist editer ##Usage: plist [option] [path...] ##    --xml,    -x [plist_path]   print plist as xml format #    --json,   -j [plist_path]   print plist as xml format #    --binary, -b [plist_path]   serialize plist to stdout #    --load       [plist_path]   load plist #    --unload     [plist_path]   unload plist ##
 _xlib_plist () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
+    # plutil defaults /usr/libexec/PlistBuddy
     which plutil >/dev/null 2>&1 || xcode-select --install 2>/dev/null
     [ $# -lt 2 ] && exit 1; # invalid option
     [ "${2##*.}" == "plist" ] || exit 1; # file format not support
     case $1 in
+        --get|-g)
+            shift;
+            [ -f "$1" ] || exit 1; # file not exist
+            [ "$2" ] || exit 1; # key not exist
+            defaults read "$1" "$2"
+        ;;
         --xml|-x)
             shift;
             [ -f "$1" ] || exit 1; # file not exist

@@ -4180,7 +4180,7 @@ exit /b 0
 :::: "lib.vbs not found"
 :xlib\vbs
     @REM cscript.exe //nologo //e:vbscript.encode %*
-    for %%a in (lib.vbs) do if "%%~$path:a"=="" (
+    for %%a in (xlib.vbs) do if "%%~$path:a"=="" (
         exit /b 1
     ) else cscript.exe //nologo "%%~$path:a" %* 2>&3 || exit /b -1
     goto :eof
