@@ -172,9 +172,22 @@ _x3rd_moby () {
             docker ps | awk 'NR>1 {print "docker stop " $1 | "sh"}'
         ;;
         tags)
-            [ "$2" ] || exit 1; # args is empty
-            curl --location --connect-timeout 30 --silent https://index.docker.io/v1/repositories/$2/tags 2>/dev/null | \
-                awk -F '[{},]' -v tag="$2" '{for(i=1; i<NF; i++)if($i ~ /name/){gsub(/"/, "", $i); sub(/ name: /, tag ":" , $i); print $i}}' | sort --version-sort;
+            shift;
+            [ "$1" ] || exit 1; # args is empty
+            # curl --location --connect-timeout 30 --silent https://index.docker.io/v1/repositories/$2/tags 2>/dev/null | \
+            #     awk -F '[{},]' -v tag="$2" '{for(i=1; i<NF; i++)if($i ~ /name/){gsub(/"/, "", $i); sub(/ name: /, tag ":" , $i); print $i}}' | sort --version-sort;
+
+            # # https://www.docker.com/blog/docker-hub-v1-api-deprecation/
+            # # https://docs.docker.com/docker-hub/api/deprecated/
+
+            # https://hub.docker.com/v2/namespaces/(library|[namespace])/repositories/[name]/tags/?page_size=100&page=1
+            # https://hub.docker.com/v2/repositories/(library|[namespace])/[name]/tags/?page_size=100&page=1
+
+            [ "${1/\//}" == "$1" ] && set -- library/$1;
+            __moby_tags "https://hub.docker.com/v2/repositories/$1/tags/?page=1&page_size=100" | \
+                awk -v name=${1/library\//} '{gsub(/"/, ""); print name$0}' | \
+                sort --version-sort;
+
         ;;
         bridge|b)
             docker network inspect --format '{{range .Containers}}{{printf "%-18s %s  %s\n" .Name .MacAddress .IPv4Address}}{{end}}' bridge
@@ -216,6 +229,21 @@ _x3rd_moby () {
     esac;
     return 0
 }
+
+__moby_tags() {
+    sleep 1.$(($RANDOM % 5 + 5));
+    while read key value; do
+        if [ "${key//\"/}" == "name" ]; then
+            printf "%s\n" :$value
+        elif [ "${key//\"/}" == "next" ]; then
+            [ "$value" == "null" ] || eval __moby_tags $value
+        fi
+    done < <(
+        curl --location --connect-timeout 30 --silent "$1" | \
+            awk -F ',' '{for(i=1; i<=NF; i++) if($i ~ /"name":|"next":/) {sub(/:/," ",$i); sub(/[\\]?u0026/, "\\&", $i); print $i}}'
+    )
+}
+
 
 # ### Camouflage to VDISK for boot2docker ##Usage: camvd [remote_login_info]
 # _x3rd_camvd () {
