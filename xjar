@@ -319,7 +319,7 @@ __xj_main() {
             printf "[${XJ_B_RED}ERROR${XJ_RE}] the file '${XJ_GREEN}%s.jar${XJ_RE}' owner user '${XJ_GREEN}%s${XJ_RE}' does not exist.\n" "$xj_jar_name" "$xj_user" >&2;
             exit 1
         }
-        xj_java_pid=$(ps -eo pid,cmd | awk '/[[:space:]]java[[:space:]].*'"${xj_jar_dir//\//\\/}"'.*\.jar/{print $1}');
+        xj_java_pid=$(ps -eo pid,cmd | awk '/^[[:space:]]*[0-9]+[[:space:]]+java[[:space:]].*'"${xj_jar_dir//\//\\/}"'.*\.jar/{print $1}');
 
         [ "$XJ_LOG_PREFIX" ] && {
             # man date
