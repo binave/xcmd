@@ -274,7 +274,7 @@ _xlib_wol () {
 
     fi
 
-    if which perl >/dev/null && [ "${SHELL##*/}" == "bash" ]; then
+    if which perl >/dev/null && [ "${SHELL##*/}" == "bash" -o "${SHELL##*/}" == "zsh" ]; then
         printf $(
             {
                 printf 'f%.0s' {1..12};

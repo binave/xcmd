@@ -1680,6 +1680,35 @@ exit /b 0
     endlocal & set %~1=%_var%
     exit /b 0
 
+::: "    --lock,          -lc [letter:]  [[-f]]      Lock"
+:sub\vol\--lock
+:sub\vol\-lc
+    :: todo :: mount at path
+    :: "C:", \\?\Volume{26a21bda-a627-11d7-9931-806e6f6e6963}\ or "C:\MountVolume"
+    if "%~2"=="-f" (
+        manage-bde.exe -lock %~d1 -ForceDismount
+    ) else manage-bde.exe -lock %~d1
+    goto :eof
+
+::: "    --unlock,        -ul [letter:] [path/pwd]   Unlock"
+:sub\vol\--unlock
+:sub\vol\-ul
+    if "%~2"=="" exit /b 91 @REM args is empty
+    if exist "%~2" (
+        manage-bde.exe -unlock %~d1 -RecoveryKey "%~2"
+    ) else manage-bde.exe -unlock %~d1 -Password %~2
+    goto :eof
+
+::: "    --auto-unlock        [letter:]              Auto unlock"
+:sub\vol\--auto-unlock
+    if /i "%~d1"=="%SystemDrive%" exit /b 84 @REM skip %SystemDrive%
+    :: if %SystemDrive% Encrypted, enable autounlock
+    call :sub\vol\--crypts-status %SystemDrive% && manage-bde.exe ^
+                                                    -autounlock ^
+                                                    -enable %~d1 >nul || exit /b 83 @REM manage-bde error
+
+    goto :eof
+
 ::: "    --hide-bitlocker                            Hide bitlocker feature, [DANGER^^^!] This is an irreversible operation"
 :sub\vol\--hide-bitlocker
     setlocal enabledelayedexpansion
@@ -1778,7 +1807,8 @@ exit /b 0
 
     call :this\baseboard_serial_path _baseboard_info
     call :sub\time\--now _now
-    set _baseboard_info=%_baseboard_info%\%_now:~0,-4%
+    :: for batch run
+    set _baseboard_info=%_now:~0,-4%.%_baseboard_info%
     set _now=
 
     @REM loop start lock
@@ -1789,9 +1819,7 @@ exit /b 0
             call :regedit\off
             exit /b 60 @REM Partition not found
         )
-        call :sub\vol\--crypts-status %%a && (
-            >&3 echo Skip encrypt '%%a'
-        ) || call :bitLocker\on\key %%a %_removable_letter% || (
+        call :bitLocker\on\key %%a %_removable_letter% || (
             call :regedit\off
             exit /b %errorlevel%
         )
@@ -1835,7 +1863,8 @@ exit /b 0
 
     call :this\baseboard_serial_path _baseboard_info
     call :sub\time\--now _now
-    set _baseboard_info=%_baseboard_info%\%_now:~0,-4%
+    :: for other batch run
+    set _baseboard_info=%_now:~0,-4%.%_baseboard_info%
     set _now=
 
     call :bitLocker\on\key %~d1 %~d2
@@ -1863,13 +1892,20 @@ exit /b 0
     echo.
     echo.
     >&3 echo Encryption [%~d1] ...
-    title Encryption [%~d1] ...
+    @REM title Encryption [%~d1] ...
 
     setlocal enabledelayedexpansion
     set _vol=%~d1
     set _vol=%_vol::=%
     set _removable_letter=%~d2
     @REM call :test\tpm
+
+    call :sub\vol\--crypts-status %_vol%: && (
+        >&3 echo Skip encrypt [%_vol%:]
+        if /i "%~d1" neq "%SystemDrive%" call :sub\vol\--auto-unlock %_vol%:
+        goto :eof
+    )
+
     set _key_type=StartupKey
     if /i "%~d1" neq "%SystemDrive%" set _key_type=RecoveryKey
 
@@ -1886,18 +1922,18 @@ exit /b 0
 
     attrib.exe -s -h -r %_removable_letter%\%_key_name%
 
+    :: e.g. K:\externalkeys\[disk_model]\[SN]\[time+baseboard_info]\[vol_SN]\K\
     for %%b in (
         _vol_%_vol%_info
-    ) do set _key_dir=%_removable_letter%\externalkeys\%_baseboard_info%\!%%b!\%_vol%\
+    ) do for %%c in (
+        %_removable_letter%\externalkeys\!%%b!
+    ) do set _key_dir=%%~dpc%_baseboard_info%\%%~nxc\%_vol%\
 
     2>nul mkdir %_key_dir%
 
     if /i "%~d1" neq "%SystemDrive%" (
         move %_removable_letter%\%_key_name% %_key_dir%
-        :: if %SystemDrive% Encrypted, enable autounlock
-        call :sub\vol\--crypts-status %SystemDrive% && manage-bde.exe ^
-                                                        -autounlock ^
-                                                        -enable %_vol%: >nul || exit /b 83 @REM manage-bde error
+        call :sub\vol\--auto-unlock %_vol%:
 
     ) else copy %_removable_letter%\%_key_name% %_key_dir%
 
@@ -1910,7 +1946,8 @@ exit /b 0
     for /f "usebackq tokens=1* delims==" %%a in (`
         wmic.exe csproduct get Name^,UUID^,Vendor /value
     `) do if "%%~b" neq "" call :this\joint_serial #$_+\%%a %%b
-    endlocal & set %~1=%#$_+\Vendor%\%#$_+\Name%\%#$_+\UUID%
+    :: [vendor].[model_name].[uuid]
+    endlocal & set %~1=%#$_+\Vendor%.%#$_+\Name%.%#$_+\UUID%
     goto :eof
 
 ::: %_vol_c_info%
@@ -1939,6 +1976,7 @@ exit /b 0
         '%%a^,%%b'
     ) do if defined #$_+\%%c\Model set _vars=!_vars! "_vol_%%e_info=!#$_+\%%c\Model!\!#$_+\%%c\SerialNumber!\!#$_+\%%e\VolumeSerialNumber!"
 
+    :: _vol_[letter]_info=[disk_model]\[SN]\[vol_SN]
     endlocal & for %%a in (%_vars%) do set %%~a
     goto :eof
 
@@ -2426,7 +2464,7 @@ exit /b 0
     for %%a in (%2 %3 %4 %5 %6 %7 %8 %9) do net.exe use * "\\%~1\%%~a" /savecred /persistent:yes || exit /b 13 @REM Command error
     exit /b 0
 
-::: "    --umount,    -u  [ip or --all]             Umount SMB"
+::: "    --umount,    -u  [ip]                      Umount SMB"
 :sub\smb\--umount
 :sub\smb\-u
     if "%~1"=="" exit /b 22 @REM parameter not enough
