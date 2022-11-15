@@ -161,6 +161,8 @@ ${XJ_RE}EOF
         printf "
 Globle config:
     cat > ${XJ_GREEN}/etc/xjar.conf${XJ_RE} <<-EOF${XJ_REVERSE}
+LANG=zh_CN.UTF-8;
+LC_ALL=zh_CN.UTF-8;
 FIND_JAR_MAX_DEPTH=2;
 # LOG_PRINT_LAST_LINES=69
 # LOCAL_XJAR_CONFIG_NAME=.xjarconf
@@ -176,6 +178,7 @@ JAR_LOG_DIR_SUF=/console;
 LIVE_LOG_DIR=/var/log/xjar-live;
 JAR_ARGS=' --config.location=./application.yml'
 # JAVA_BIN_DIR=/usr/lib/jvm/openjdk-8/bin
+STOP_TIMEOUT=30
 ${XJ_RE}EOF
 
 Local config:
@@ -413,6 +416,8 @@ __xj_main() {
             fi
 
             export XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            [ "$XJ_LANG" ] && export LANG=$XJ_LANG;
+            [ "$XJ_LC_ALL" ] && export LC_ALL=$XJ_LC_ALL;
 
             touch "$xj_jar_log_file";
             chown $xj_user:$xj_group "$xj_jar_log_file";
@@ -563,7 +568,7 @@ __xj_main() {
             fi
             kill -$xj_sigspec $xj_java_pid $(__xj_pipe_pid $xj_java_pid);
             sleep 0.5;
-            xj_wait_limit=30;
+            xj_wait_limit=${XJ_STOP_TIMEOUT:-30};
             while ps -p $xj_java_pid >/dev/null; do
                 sleep 1;
                 [ $((xj_wait_limit--)) -le 0 ] && {
