@@ -357,7 +357,7 @@ _x3rd_play () {
     function __play_ff () {
         [ -f "$1" ] || exit 1; # file not exist
         case "`xlib str --lower ${1##*.}`" in
-            avi|divx|flv|mkv|mp4|mpg|rm|rmvb|vob|wmv)
+            avi|divx|flv|mkv|m2ts|mp4|mpg|rm|rmvb|vob|wmv)
                 # -ac 2 #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
                 # -sn #disable subtitling
                 ffplay -hide_banner $stream_specifier -ac 2 -sn -autoexit -af "volume=${PLAY_VOLUME:-0.85}" "$1" || return 1
