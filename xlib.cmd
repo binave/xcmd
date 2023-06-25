@@ -229,7 +229,7 @@ exit /b 0
     if "%~1"=="" exit /b 22 @REM The first parameter is empty
     @REM mshta.exe VBScript:CreateObject("WScript.Shell").Run("""%~1"" %~2", 0)(Window.close)
     @REM see https://docs.microsoft.com/zh-tw/windows/desktop/shell/shell-shellexecute#code-snippet-1
-    @REM mshta.exe VBScript:CreateObject("Shell.Application").ShellExecute("%~1","%2 %3 %4 %5 %6 %7 %8 %9","","open",0)(window.close)
+    @REM mshta.exe VBScript:CreateObject("Shell.Application").ShellExecute("%~1","%~2","","open",0)(window.close) 'No spaces are allowed in the preceding code 'e.g. "D:\demo.exe" "--config ""D:\demo 2.config"""
     call :xlib\vbs vbhide "%~1"
     exit /b 0
 
@@ -619,6 +619,8 @@ exit /b 0
     ) else netsh.exe interface portproxy add v4tov4 listenport=%%b listenaddress=%%a connectport=%%d connectaddress=%%c
     endlocal
     exit /b 0
+
+:: TODO change mac addr: reg.exe add hklm\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318}/0001 /v NetworkAddress /t REG_SZ /d abcdef012345 /f
 
 ::: "Directory tools, Use '-h' for a description of the options" "" "usage: %~n0 dir [option] [...]" ""
 :xlib\dir
@@ -3645,9 +3647,12 @@ exit /b 0
     @REM Version 16.0.15427.20220
     @REM Version 16.0.15601.20148
     @REM Version 16.0.15629.20208
+    @REM Version 16.0.15726.20202
+    @REM Version 16.0.15928.20216
+    @REM Version 16.0.16026.20170
 
     call :xlib\download ^
-            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_15629-20208.exe ^
+            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_16026-20170.exe ^
             %temp%\%~1\officedeploymenttool16.exe || exit /b 1
 
     %temp%\%~1\officedeploymenttool16.exe /extract:%temp%\%~1 /quiet || exit /b 1
@@ -4126,8 +4131,11 @@ exit /b 0
 :xlib\SHA256
 ::: "Print or check SHA512 (512-bit) checksums." "" "usage: %~n0 sha512 [file]"
 :xlib\SHA512
-    for /f "usebackq delims=" %%a in (
-        `2^>nul dir /a-d /b /s %*`
+    :: TODO
+    @REM for /f "usebackq delims=" %%a in (
+        @REM `2^>nul dir /a-d /b /s %*`
+    for %%a in (
+        %*
     ) do for %%b in (%0) do call :this\hash %%~nb "%%~a" || exit /b 2 @REM hash error
     exit /b 0
 
