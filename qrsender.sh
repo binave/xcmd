@@ -52,7 +52,7 @@ while getopts ":s:w:l:" opt; do
         s) step_rows="$OPTARG";;
         w) sleep_sec="$OPTARG";;
         l) index_list="$OPTARG";;
-        *) printf "Usage: $0 [target_file] -w [sleep_sec] -s [step_rows] -l [index_list]\n\n" >&2; exit 1;;
+        *) printf "Usage: $0 [target_file] -w [sleep_sec] -s [step_rows] -l [index_list/range]\n\n" >&2; exit 1;;
     esac
 done
 
@@ -76,7 +76,7 @@ else
 
 fi | base64 > "$base64_tmp_file";
 
-input_type=f; [ -d "$input_path" ] && input_type=d;
+input_type=f; [ -d "$input_path" ] && { input_path="${input_path%/}"; input_type=d; }
 sleep_sec=${sleep_sec:-'0.9'};
 base64_sha1=$(sha1sum "$base64_tmp_file") max_nr=$(grep -c '^[0-9A-Za-z+/=]\+$' "$base64_tmp_file")
 qr_count=$((max_nr / step_rows + 1)); [ $((max_nr % step_rows)) == 0 ] && qr_count=$((qr_count - 1))
@@ -126,7 +126,7 @@ awk \
     };
     END{
         idx++;
-        if (!index_list || idx_map[idx]) if (idx >= begin)
+        if (out != "") if (!index_list || idx_map[idx]) if (idx >= begin)
             system("printf \"" blank_lines_max "\n# " idx " / " qr_count "\n\"; printf \"# " idx "\n" out "\" | qrencode -o - -t ansi256; sleep " sleep_sec)
     }' "$base64_tmp_file" &
 awk_pid=$!
@@ -142,6 +142,6 @@ sleep $sleep_sec; sleep 0.8;
 
 printf -v blank_lines_all "%${rows_cols% *}s" " ";
 printf -v blank_lines_all %s" ${blank_lines_all// /\\n}";
-printf "$blank_lines_all\n# complete! send:$input_path use ${use_sec}s\n"
+printf "$blank_lines_all\n# complete! sending the file '$input_path', using $qr_count + 2 QR codes, took $use_sec seconds.\n"
 
 rm -f "$base64_tmp_file";
