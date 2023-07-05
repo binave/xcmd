@@ -16,29 +16,28 @@
 [ -e "$1" ] || { printf "target file '$1' not exist\n" >&2; exit 1; }
 which qrencode >/dev/null 2>/dev/null || { printf "'qrencode' command not found or not in '\$PATH'\n" >&2; exit 1; }
 
-get_max_qr_rows() {
+get_current_rows() {
     set -- $(stty size)
-    set -- $(($1 - 1)) $(($2 / 2 - 1))
+    set -- $(($1 - 1)) $(($2 / 2 + 1))
     [ $1 -lt $2 ] && printf $1 || printf $2
 }
 
-max_qr_rows=`get_max_qr_rows`;
-[ $max_qr_rows -lt 46 ] && {
+all_ascii_qr_rows=(`seq 29 4 185`) # ascii_qr_cols_by_version[$version - 1]=$((${all_ascii_qr_rows[$version - 1]} * 2))
+
+# for i in {2..40}; do cat "$1" | gzip | base64 | while read l; do [ $((++c % $i)) == 1 ] && { printf "$n" | qrencode -o - -t ascii | awk 'END{print NR, length($0)}' || break; unset n; }; n="$n$l\n"; done | awk -v i=$i 'BEGIN{m=0};{t=strtonum($1);if(t > m) m = t}END{print i "," m}'; done
+# base64 rows:  01 02 03 04 05 06 07 08 09  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38
+   max_qr_rows=(41 57 65 69 77 85 89 93 97 101 105 113 117 117 121 125 129 133 137 141 141 145 149 153 153 157 161 161 165 169 169 173 173 177 181 181 185 185) # 76/64 same for base64 & openssl base & certutil.exe -decode
+
+current_rows=`get_current_rows`;
+[ $current_rows -lt $((${max_qr_rows[0]} + 4)) ] && {
     printf "window is too small\n" >&2
     exit 1
 }
 
-qr_rows=(29 33 37 41 45 49 53 57 61 65 69 73 77 81 85 89 93 97 101 105 109 113 117 121 125 129 133 137 141 145 149 153 157 161 165 169 173 177 181 185) # qr_cols[$i]=$((${qr_rows[$i]} * 2))
-# for i in {2..50}; do cat "$1" | gzip | base64 | while read l; do [ $((++c % $i)) == 1 ] && { printf "$n" | qrencode -o - -t ascii | awk 'END{print NR, length($0)}' || break; unset n; }; n="$n$l\n"; done | awk -v i=$i 'BEGIN{m=0};{t=strtonum($1);if(t > m) m = t}END{print i "," m}'; done
-
-# base64_row4line=(41 57 65 69 77 85 89 93 97 101 105 109 117 117 121 125 129 133 137 141 141 145 149 153 153 157 161 161 165 169 169 173 173 177 181 181 185 185)
-#                01 02 03 04 05 06 07 08 09  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38
-base64_row4line=(41 57 65 69 77 85 89 93 97 101 105 113 117 117 121 125 129 133 137 141 141 145 149 153 153 157 161 161 165 169 169 173 173 177 181 181 185 185)
-
 unset default_step
-[ $max_qr_rows -ge 181 ] && default_step=36 || for i in ${!base64_row4line[@]}; do
-    [ $max_qr_rows -ge ${base64_row4line[$i]} -a $max_qr_rows -le ${base64_row4line[$i + 1]} ] && {
-        default_step=$((i + 1));
+[ $current_rows -ge ${max_qr_rows[${#max_qr_rows[@]} - 4]} ] && default_step=$((${#max_qr_rows[@]} - 2)) || for i in ${!max_qr_rows[@]}; do
+    [ $current_rows -ge ${max_qr_rows[$i]} -a $current_rows -le ${max_qr_rows[$i + 1]} ] && {
+        default_step=$(($i + 1));
         break
     }
 done
@@ -88,9 +87,9 @@ printf "# begin ${base64_sha1%% *} $input_path\n$begin_timestamp,$sleep_sec,$ste
 sleep $sleep_sec; sleep 0.8;
 
 rows_cols=$(stty size);
-printf -v blank_lines "%$((${rows_cols% *} - ${base64_row4line[$step_rows - 1]}))s" " ";
+printf -v blank_lines "%$((${rows_cols% *} - ${max_qr_rows[$step_rows - 1]}))s" " ";
 printf -v blank_lines %s" ${blank_lines// /\\n}";
-printf -v blank_lines_max "%$((${rows_cols% *} - ${qr_rows[0]}))s" " ";
+printf -v blank_lines_max "%$((${rows_cols% *} - ${all_ascii_qr_rows[0]}))s" " ";
 printf -v blank_lines_max %s" ${blank_lines_max// /\\n}";
 
 trap '_kill_awk $?' SIGINT
