@@ -598,10 +598,13 @@ exit /b 0
 @REM Get router ip
 :this\get_route_ip
     if "%~1"=="" exit /b 1
+    setlocal enabledelayedexpansion
+    set _gateway=
     @REM "
     for /f usebackq^ skip^=1^ tokens^=2^ delims^=^" %%a in (
         `wmic.exe NicConfig get DefaultIPGateway`
-    ) do set %1=%%a
+    ) do set _gateway=!_gateway! %%a
+    endlocal & set %1=%_gateway%
     exit /b 0
 
 ::: "    --forward  [[local_ip:]port] [to_ip:port]" "                          IPv4 forward"

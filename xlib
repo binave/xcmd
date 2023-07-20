@@ -167,7 +167,7 @@ __get_pkg () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
     # sudo chown -R $USER:`id -gn $USER` /private/var/folders
     # sudo chmod -R 755 /private/var/folders
-    [ `ps -ef | grep -c "${0##*/}.*pkg.*-g"` -gt 3 ] && exit 1; # gpkg command is already running
+    [ `ps -ef | grep -c "${0##*/}.*pkg.*-g"` -gt 3 ] && exit 1; # pkg command is already running
 
     # Override pkg map: pkg[$serial_number]="$path"
     function ___get_pkg_serial_number () {
@@ -1132,7 +1132,10 @@ __ip_find () {
     # get [setting]
     __load_ini sip_setting;
     route_ip=`_map --get route`;
-    route_ip=(${route_ip//,/ } `route -n get default | awk '/gateway/{print $2}'`);
+    route_ip=(${route_ip//,/ } `[[ $OSTYPE == darwin* ]] && {
+        netstat -nr | awk '/^default[[:space:]]/ && ! /tun|tap/{print $2}';
+        :
+    } || ip route | awk '/^default/{print $3}'`);
     # trim
     for i in ${!route_ip[@]}; do
         _set --add "${route_ip[$i]%.*}" >/dev/null || unset route_ip[$i];
