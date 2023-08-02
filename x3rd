@@ -824,7 +824,7 @@ _func_annotation () {
             # At func name
             [ "${i%_*}" == "_${0##*/}" -a "$j" == ")" ] && {
                 # Left aligned at 15 char
-                printf "%-15s$k\n" ${i##*_};
+                printf "%-15s%s\n" ${i##*_} "$k";
                 # Clear var
                 unset k
             };
