@@ -24,6 +24,8 @@ __xj_run () {
         set -- java $XJ_JAVA_ARGS -jar "$XJ_JAR_FILE" $XJ_JAR_ARGS;
     fi
 
+    [ -e "${XJ_JAVA_BIN_DIR%/}/java" ] && export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH;
+
     [ -x $XJ_MINUS_1_ARG ] && set -- $XJ_MINUS_1_ARG "$@";
 
     (
@@ -285,7 +287,7 @@ __xj_main() {
     __xj_load_config $HOME/.xjarc;
     __xj_load_config $XJ_LOCAL_XJAR_CONFIG_NAME;
     eval $( set | awk '{if($_ ~ /^{[[:space:]]|[[:space:]]\(\)[[:space:]]$/) exit; if($_ !~ /^(XJ_|_=)/ && $_ ~ /^[A-Z_]+=[^(][^*]{,128}$/){print "export XJ_" $0}}');
-    [ -e "${XJ_JAVA_BIN_DIR%/}/java" ] && export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH;
+    [ "$XJ_JAVA_BIN_DIR" ] && [ ! -e "${XJ_JAVA_BIN_DIR%/}/java" ] && { printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not java bin directory.\n" "$XJ_JAVA_BIN_DIR" >&2; exit 1; }
 
     if [ "$XJ_JAR_LOG_DIR" ]; then
         :
@@ -415,7 +417,7 @@ __xj_main() {
                 };
             fi
 
-            export XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            export XJ_JAVA_BIN_DIR XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
             [ "$XJ_LANG" ] && export LANG=$XJ_LANG;
             [ "$XJ_LC_ALL" ] && export LC_ALL=$XJ_LC_ALL;
 
