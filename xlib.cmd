@@ -3654,8 +3654,15 @@ exit /b 0
     @REM Version 16.0.15928.20216
     @REM Version 16.0.16026.20170
 
+    @REM Version 16.0.16130.20186
+    @REM Version 16.0.16227.20244
+    @REM Version 16.0.16327.20214
+    @REM Version 16.0.16501.20140
+    @REM Version 16.0.16529.20164
+    @REM Version 16.0.16626.20148
+
     call :xlib\download ^
-            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_16026-20170.exe ^
+            https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_16626-20148.exe ^
             %temp%\%~1\officedeploymenttool16.exe || exit /b 1
 
     %temp%\%~1\officedeploymenttool16.exe /extract:%temp%\%~1 /quiet || exit /b 1
