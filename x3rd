@@ -272,7 +272,7 @@ _x3rd_2flac () {
     return 0
 }
 
-### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##   PLAY_VOLUME               environment variable e.g. 0.1 ##   PLAY_SCALE                environment variable e.g. -1:480 ##
+### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##   PLAY_VOLUME               environment variable e.g. 0.5 ##   PLAY_SCALE                environment variable e.g. -1:480 ##
 _x3rd_play () {
     which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
     which xlib >/dev/null 2>&1 || exit 1; # xlib command not found

@@ -367,7 +367,7 @@ exit /b 0
     goto :eof
 
 
-::: "Play all multi-media in directory" "" "usage: %~n0 play [options] ... [directory...]" "" "    --random, -r" "    --ast,    -a " "    --skip,   -j [count]"
+::: "Play all multi-media in directory" "" "usage: %~n0 play [options] ... [directory...]" "" "    --random, -r             random play" "    --ast,    -a [num]       select desired audio stream" "    --skip,   -j [count]     skip some file" "" "   PLAY_VOLUME               environment variable e.g. 0.5" "" "   PLAY_SCALE                environment variable e.g. -1:480"
 :::: "ffplay command not found" "args is empty"
 :x3rd\play
     call :sub\path\--contain ffplay.exe || exit /b 1
@@ -426,9 +426,11 @@ exit /b 0
     echo Progress #%_i% / %_c%, %_random%
     @REM -sn ::disable subtitling
     @REM -ac 2 ::ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) ::Convert the 5.1 track to stereo
+    if not defined PLAY_VOLUME set PLAY_VOLUME=0.85
+    if not defined PLAY_SCALE set PLAY_SCALE=-1:-1
     for %%a in (
         avi divx flv mkv mp4 mpg rm rmvb vob webm wmv
-    ) do if /i "%~x1"==".%%a" ffplay.exe -hide_banner %_stream_specifier% -ac 2 -sn -autoexit -vf "scale=-1:480" -af "volume=0.85" %1 2>&1
+    ) do if /i "%~x1"==".%%a" ffplay.exe -hide_banner %_stream_specifier% -ac 2 -sn -autoexit -vf "scale=%PLAY_SCALE%" -af "volume=%PLAY_VOLUME%" %1 2>&1
     for %%a in (
         alac ape flac m4a mp3 ogg tta tak wav wma
     ) do if /i "%~x1"==".%%a" start /b /wait /min ffplay.exe -hide_banner -autoexit -af "volume=0.05" %1 2>&1

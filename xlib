@@ -1202,7 +1202,7 @@ __ip_find () {
                 # [[ `smbutil status $1 2>/dev/null` == *$i* ]] && printf $1
             done
         done
-    };
+    } 2>/dev/null;
 
     # init thread valve
     _thread_valve --init 32;
