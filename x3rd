@@ -589,9 +589,13 @@ _x3rd_urls () {
             done
         ;;
         --jetbrains|-j)
+            # curl -L 'https://data.services.jetbrains.com/products?code=IIC,RR&release.type=eap,rc,release,preview&fields=distributions,link,name,releases'
+            # curl -L 'https://data.services.jetbrains.com/products?fields=code,intellijProductCode,alternativeCodes,name,releases.date,releases.type,releases.version,releases.majorVersion,releases.build'
             curl --location --connect-timeout 20 \
-                'https://data.services.jetbrains.com/products/releases?code=IIC,IIU,PCP,PCC,WS,PS,RD,CL,DG,DS,RM,AC,GO&latest=true&type=release' \
-                2>/dev/null | awk -F \" '{for(i=1; i<=NF; i++) {if($i ~ /download\.jetbrains\.com\// && $i !~ /-no-|-patch-/){print $i}}}' | uniq
+                "https://data.services.jetbrains.com/products/releases?code=$(
+                    curl --location 'https://data.services.jetbrains.com/products?fields=code,categories' 2>/dev/null | awk -F \" '{for(i=1; i<=NF; i++) {if($i == "code" && $(i+6) == "IDE") { printf "%s,", $(i + 2); }}}'
+                )&type=release&latest=true" 2>/dev/null | \
+                    awk -F \" '{for(i=1; i<=NF; i++) {if($i == "thirdPartyLibrariesJson") { i += 9; }; if(($i == "link" || $i == "checksumLink") && $(i + 2) !~ /-patch-/) { print $(i + 2); }}}'
         ;;
         --eclipse|-e)
             # 1       https://download.eclipse.org

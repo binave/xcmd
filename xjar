@@ -287,7 +287,7 @@ __xj_main() {
     __xj_load_config $HOME/.xjarc;
     __xj_load_config $XJ_LOCAL_XJAR_CONFIG_NAME;
     eval $( set | awk '{if($_ ~ /^{[[:space:]]|[[:space:]]\(\)[[:space:]]$/) exit; if($_ !~ /^(XJ_|_=)/ && $_ ~ /^[A-Z_]+=[^(][^*]{,128}$/){print "export XJ_" $0}}');
-    [ "$XJ_JAVA_BIN_DIR" ] && [ ! -e "${XJ_JAVA_BIN_DIR%/}/java" ] && { printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not java bin directory.\n" "$XJ_JAVA_BIN_DIR" >&2; exit 1; }
+    [ "$XJ_JAVA_BIN_DIR" ] && { [ ! -e "${XJ_JAVA_BIN_DIR%/}/java" ] && { printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not java bin directory.\n" "$XJ_JAVA_BIN_DIR" >&2; exit 1; }; export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH; }
 
     if [ "$XJ_JAR_LOG_DIR" ]; then
         :
