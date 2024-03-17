@@ -3009,6 +3009,10 @@ exit /b 0
 ::: "    --get,    -g                                Display hardware ids"
 :sub\drv\--get
 :sub\drv\-g
+    if "%1" == "-m" (
+        wmic.exe path Win32_PnpEntity get Caption,DeviceID,Description /value
+        exit /b 0
+    )
     call :sub\var\--in-path devcon.exe || >nul call :init\devcon
     setlocal
     @REM Trim Hardware and compatible ids
@@ -3020,6 +3024,12 @@ exit /b 0
         `2^>nul set _$`
     ) do echo %%a
     endlocal
+    exit /b 0
+
+::: "    --get-err,-ge                               Display hardware info where status is error"
+:sub\drv\--get-err
+:sub\drv\-ge
+    wmic.exe path Win32_PnpEntity where "Status='Error'" get /value
     exit /b 0
 
 ::: "    --filter, -f  [inf_path] [drivers_dir]      Search device *.inf"
@@ -3176,6 +3186,15 @@ exit /b 0
                     8/1/6/816FE939-15C7-4185-9767-42ED05524A95/wdk ^
                     82c1721cd310c73968861674ffc209c9 ^
                     fil5a9177f816435063f779ebbbd2c1a1d2
+    exit /b 0
+
+::: "    --ranc                                      [WARNING^^^!] Restart All network card"
+:sub\drv\--ranc
+    for /f "usebackq skip=2 tokens=3*" %%a in (`
+        netsh.exe interface show interface
+    `) do for %%c in (
+        disable enable
+    ) do netsh.exe interface set interface "%%b" %%c
     exit /b 0
 
 
