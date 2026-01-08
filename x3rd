@@ -1,0 +1,882 @@
+#!/bin/bash
+#   Copyright 2017 bin jin
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+# Framework:
+#
+#     If the function names conform to the specifications:
+#         External call function.
+#         Error handling.
+#         Display help information.
+#         Print the functions list.
+#
+#     e.g.
+#         ### [brief_introduction] #[description_1] #[description_1]
+#         [script_name]_[function_name](){
+#             ...
+#             [function_body]
+#             '''
+#             # exit and display [error_description]
+#             exit 1; # [error_description]
+#             '''
+#             # return false status
+#             return 1
+#         }
+
+# # arguments
+# for i in "$@"; do
+#     case "$i" in
+#         --arg.str=*)
+#             printf ${i#*=}
+#         ;;
+#         --help | -h)
+#             printf "HELP\n"
+#         ;;
+#         *)
+#             printf "invalid option\n" >&2
+#         ;;
+#     esac;
+# done
+
+### Output version and exit.
+_x3rd_version () {
+    printf "0.21.4.11\n" >&2;
+    return 0
+}
+
+### Lan manage ##Usage: lan [option] [args...] ##    --restart,   -r [lan_name] [[-f|--force]] #        e.g. */1 * * * * 3rd lan --restart en0 ##
+_x3rd_lan () {
+    local PATH="$PATH:/usr/bin:/usr/sbin:/sbin"; # for 'crontab'
+    case $1 in
+        --restart|-r)
+            [ "$2" ] || exit 1; # lan name is empty
+            [[ $2 == *[a-zA-Z][0-9]* ]] || exit 1; # not a lan drive
+
+            if [[ $OSTYPE == darwin* ]]; then
+                [ "$3" == "--force" -o "$3" == "-f" ] || \
+                    ifconfig $2 2>/dev/null | grep -q "status:.*inactive" || return 0;
+
+                networksetup -setairportpower $2 off && \
+                networksetup -setairportpower $2 on && return 0;
+
+            fi
+            return 1
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac;
+}
+
+### git toolsUsage: git [option] [args...] ##    backup        Backup git repositories#    rbundle [[user@host:]target_path] [[user@host:]source_path]#                  Remote git bundle##
+_x3rd_git () {
+    case $1 in
+        backup)
+            which git >/dev/null 2>&1 || exit 1; # git command not found
+            local l o name tamp;
+
+            while read l; do
+                l=${l%/*};
+
+                # project name
+                name=${l/\/\.git/};
+                name=${name/\.git/};
+                name=${name##*/};
+
+                tamp=`git --git-dir="$l" log -1 --all --pretty=format:%cd --date=format:%y%m%d%H%M`;
+
+                [ "$tamp" ] || {
+                    echo skip: $l;
+                    continue
+                };
+
+                o="./${name}_$tamp.git";
+
+                [ -f "$o" ] && {
+                    echo exist: $o;
+                    continue
+                };
+
+                echo create bundle: $name;
+                # git --git-dir="$l" bundle create "$o" HEAD master;
+                git --git-dir="$l" bundle create "$o" --all && git bundle verify "$o";
+                git --git-dir="$l" gc;
+                echo
+            done < <(find . -type d -name "hooks")
+        ;;
+        rbundle)
+            shift;
+            [ "$1" ] || exit 1; # target path is empty
+            [ "$2" ] || exit 1; # source path is empty
+            local target_host target_dir source_host source_dir;
+
+            target_dir="${1#*:}";
+            [ "$target_dir" == "$1" ] || target_host=${1%%:*};
+
+            source_dir="${2#*:}";
+            [ "$source_dir" == "$2" ] || source_host=${2%%:*};
+
+            function __rbundle () {
+                printf %s 'git --git-dir="'"$2"'" bundle create - --all' | ssh $1 bash
+            }
+
+            function __rcatver () {
+                ssh $1 'cat > "'"$2"'" && git bundle verify "'"$2"'"'
+            }
+
+            if [ "$target_host" -a "$source_host" ]; then
+                # both
+                __rbundle $source_host $source_dir | __rcatver $target_host "$target_dir"
+            elif [ "$target_host" ]; then
+                # local -> remote
+                [ -d "$source_dir" ] || exit 1; # path not exist
+                git --git-dir="$source_dir" bundle create - --all | __rcatver $target_host "$target_dir"
+            else
+                # remote -> local
+                __rbundle $source_host $source_dir > "$target_dir";
+                git bundle verify "$1";
+            fi
+            return 0
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac;
+}
+
+# ### VirtualBox Manage (Not complete) ##Usage: vbox [start|stop|stopall] ##
+# _x3rd_vbox () {
+#     [ -f /Applications/VirtualBox.app\Contents\MacOS\VBoxManage ] || exit 1; # need install VirtualBox
+#     return 0
+# }
+
+### Docker batch command ##Usage: moby [option] [args...]##    start                Start all exited containers#    stop                 Stop all running containers#    tags [image_name]    Get docker tags#    bridge               Print containers network info##
+_x3rd_moby () {
+    [ "$1" == "tags" ] || which docker >/dev/null 2>&1 || exit 1; # docker client command not found
+    case $1 in
+        start)
+            docker ps --filter status=exited | awk 'NR>1 {print "docker start " $1 | "sh"}'
+        ;;
+        stop)
+            docker ps | awk 'NR>1 {print "docker stop " $1 | "sh"}'
+        ;;
+        tags)
+            shift;
+            [ "$1" ] || exit 1; # args is empty
+            # curl --location --connect-timeout 30 --silent https://index.docker.io/v1/repositories/$2/tags 2>/dev/null | \
+            #     awk -F '[{},]' -v tag="$2" '{for(i=1; i<NF; i++)if($i ~ /name/){gsub(/"/, "", $i); sub(/ name: /, tag ":" , $i); print $i}}' | sort --version-sort;
+
+            # # https://www.docker.com/blog/docker-hub-v1-api-deprecation/
+            # # https://docs.docker.com/docker-hub/api/deprecated/
+
+            # https://hub.docker.com/v2/namespaces/(library|[namespace])/repositories/[name]/tags/?page_size=100&page=1
+            # https://hub.docker.com/v2/repositories/(library|[namespace])/[name]/tags/?page_size=100&page=1
+
+            [ "${1/\//}" == "$1" ] && set -- library/$1;
+            __moby_tags "https://hub.docker.com/v2/repositories/$1/tags/?page=1&page_size=100" | \
+                awk -v name=${1/library\//} '{gsub(/"/, ""); print name$0}' | \
+                sort --version-sort;
+
+        ;;
+        bridge|b)
+            docker network inspect --format '{{range .Containers}}{{printf "%-18s %s  %s\n" .Name .MacAddress .IPv4Address}}{{end}}' bridge
+        ;;
+        port|p)
+            # docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}}{{(index $value 0).HostPort}} -> {{$key}}{{"\n"}}{{end}}' $2
+            docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}}{{printf "%-15s -> %s\n" (index $value 0).HostPort $key}}{{end}}' $2
+        ;;
+        mount|m)
+            # docker inspect --format '{{range $i, $v := .Mounts}}{{printf "%-40s -> %s\n" $v.Source $v.Destination}}{{end}}' $2
+            docker inspect --format '{{range $i, $v := .Mounts}}{{printf "%-40s -> %s %s\n" $v.Source $v.Destination $v.Mode}}{{end}}' $2
+        ;;
+        run-com)
+            docker inspect --format '{{range $key, $value := .HostConfig.PortBindings}} --publish {{(index $value 0).HostPort}}:{{$key}} \{{"\n"}}{{end}}{{range $i, $v := .Mounts}} --volume {{$v.Source}}:{{$v.Destination}} {{$v.Mode}} \{{"\n"}}{{end}}{{range $key, $value := .Config.Env}} --env {{$value}} \{{"\n"}}{{end}}' $2
+        ;;
+        https4nginx)
+            shift;
+            local host_name="$1" httpd_root_path="$2" nginx_ssl_path="$3" emails="$4" image_version=$(docker images | awk '/^certbot/{print $2}' | sort -rV | head -1);
+            [ "$host_name" ] || exit 1; # hostname is empty
+            [ "$httpd_root_path" ] || exit 1; # httpd root path is empty
+            [ "$nginx_ssl_path" ] || exit 1; # nginx ssl path is empty
+            [ "$emails" ] || exit 1; # email is empty
+            : ${image_version:='latest'};
+            docker run --rm \
+                --volume $httpd_root_path:/www \
+                --volume $nginx_ssl_path/letsencrypt:/etc/letsencrypt \
+                certbot/certbot:$image_version \
+                certonly \
+                    --non-interactive \
+                    --agree-tos \
+                    --email $emails \
+                    --webroot \
+                    --webroot-path /www \
+                    --domain $host_name
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac;
+    return 0
+}
+
+__moby_tags() {
+    sleep 1.$(($RANDOM % 5 + 5));
+    while read key value; do
+        if [ "${key//\"/}" == "name" ]; then
+            printf "%s\n" :$value
+        elif [ "${key//\"/}" == "next" ]; then
+            [ "$value" == "null" ] || eval __moby_tags $value
+        fi
+    done < <(
+        curl --location --connect-timeout 30 --silent "$1" | \
+            awk -F ',' '{for(i=1; i<=NF; i++) if($i ~ /"name":|"next":/) {sub(/:/," ",$i); sub(/[\\]?u0026/, "\\&", $i); print $i}}'
+    )
+}
+
+
+# ### Camouflage to VDISK for boot2docker ##Usage: camvd [remote_login_info]
+# _x3rd_camvd () {
+#     ssh $@ <<-SH
+# ver=\`uname -r\`;
+# [ "\${ver#*-}" == "boot2docker" ] || exit;
+# # sudo dd if=/dev/zero of=/dev/sda bs=1k count=256
+# UNPARTITIONED_HD=\`fdisk -l | grep "doesn't contain a valid partition table" | head -n 1 | sed 's/Disk \(.*\) doesn.*/\1/'\`;
+# DISK_VENDOR=\$(cat /sys/class/block/\$(basename \$UNPARTITIONED_HD /dev/)/device/vendor /sys/class/block/\$(basename \$UNPARTITIONED_HD /dev/)/device/model | tr -d "\n");
+# sudo sed -i "s/VMware, VMware Virtual S/\$DISK_VENDOR/g;s/1000M/\`free -m | awk '/Mem/{print \$2}'\`M/g;s/ext4 -L/ext4 -i 8192 -L/g" /etc/rc.d/automount;
+# sudo sh /etc/rc.d/automount;
+# sudo reboot;
+# SH
+
+# }
+
+### Convert alac,ape,m4a,tta,tak,wav to flac format #Goto workdir and exec cflac command ##
+_x3rd_2flac () {
+    local regex='alac|ape|m4a|tta|tak|wav';
+    which ffmpeg >/dev/null 2>&1 || exit 1; # ffmpeg command not found
+    [[ $OSTYPE == darwin* ]] && {
+        find -E -type f -iregex '.*\.('$regex')$' -exec ffmpeg -hide_banner -i {} -acodec flac {}.flac \; || :
+    } || {
+        find -type f -iregex '.*\.\('${regex//\|/\\|}'\)$' -exec ffmpeg -hide_banner -i {} -acodec flac {}.flac \; || :
+    }
+    return 0
+}
+
+### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##   PLAY_VOLUME               environment variable e.g. 0.5 ##   PLAY_SCALE                environment variable e.g. -1:480 ##
+_x3rd_play () {
+    which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
+    which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
+
+    local file_list media=() maxdepth stream_specifier skip=0 ext regex;
+
+    # args
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -*maxdepth | -d)
+                xlib inum $2 && {
+                    maxdepth="-maxdepth $2";
+                    shift
+                } || exit 1; # max depth must be a number
+            ;;
+            -*random | -r)
+                file_list=1;
+            ;;
+            -*ast | -a)
+                # -ast stream_specifier  #select desired audio stream
+                xlib inum $2 && {
+                    stream_specifier="-ast $2";
+                    shift
+                } || exit 1; # audio specifier must be a number
+            ;;
+            -*skip | -j)
+                xlib inum $2 && {
+                    skip=$2;
+                    shift
+                } || exit 1; # skip must be a number
+            ;;
+            *)
+                if [ -f "$1" -o -d "$1" ]; then
+                    media[${#media[@]}]="$1"
+                else
+                    exit 1; # not path
+                fi
+            ;;
+        esac
+        shift
+    done
+
+    [ ${#media[@]} == 0 ] && exit 1; # media file not found
+
+    regex='avi|divx|flv|mkv|mp4|mpg|rm|rmvb|vob|wmv|alac|ape|flac|m4a|mp3|ogg|tta|tak|wav|wma';
+
+    [[ $OSTYPE == darwin* ]] && {
+        ext='-E';
+        regex='.*\.('$regex')$'
+    } || regex='.*\.\('${regex//\|/\\|}'\)$'
+
+    mkdir -p "$HOME/.playlist";
+
+    function __playlist_index () {
+        local index;
+        read index < "$1.index";
+        : ${index:=0};
+        [ $index == $(cat "$1"[+-] | grep -c '\.') ] && {
+            printf $index;
+            return 0
+        };
+        return 1
+    } 2>/dev/null;
+
+    function __sort_play () {
+        # __playlist_index "$2" || exit 1; # playlist error
+        __play_ff "$1" && {
+            printf "%s\n" "$1" >> "$2+";
+            :
+        } || printf "%s\n" "$1" >> "$2-"
+    };
+
+    function __play_title () {
+        printf "\n\nProgress $1";
+        shift;
+        [ "$1" ] && {
+            sleep 0.5;
+            printf "%s\n" "Next track '$*'"
+        } &
+    };
+
+    function __play_ff () {
+        [ -f "$1" ] || exit 1; # file not exist
+        case "`xlib str --lower ${1##*.}`" in
+            avi|divx|flv|mkv|m2ts|mp4|mpg|rm|rmvb|vob|wmv)
+                # -ch_layout stereo #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
+                # -sn #disable subtitling
+                ffplay -hide_banner $stream_specifier -ch_layout stereo -sn -vf "scale=${PLAY_SCALE:-'-1:-1'}" -autoexit -af "volume=${PLAY_VOLUME:-0.85}" "$1" || return 1
+            ;;
+            alac|ape|flac|m4a|mp3|ogg|tta|tak|wav|webm|wma)
+                ffplay -hide_banner -nodisp -autoexit -af "volume=${PLAY_VOLUME:-0.15}" "$1" || return 1
+            ;;
+            *)
+                exit 1; # unknown suffix
+            ;;
+        esac
+        return 0
+    };
+
+    local i line path last_index playlist cache_line line_count;
+
+    for path in "${media[@]}"; do
+        if [ -d "$path" ]; then
+
+            # full path
+            play_list="$HOME/.playlist/`openssl sha256 <<< "$(cd "$path"; pwd)"`.list";
+
+            # random playlist
+            if [ "$file_list" ]; then
+                file_list=();
+                if [ -s "$play_list" ]; then
+                    # line num
+                    line_count=`grep -c '\.' "$play_list"`;
+                    last_index=`__playlist_index "$play_list"` || {
+                        rm -f "$play_list"[+-];
+                        last_index=0
+                    };
+                else
+                    # random list
+                    local len cols sub ran;
+                    printf '\033[?25l'; # hidden cursor
+                    trap 'printf "\033[?25h"; exit' INT; # show cursor after CTRL-C
+                    while read line; do
+                        sub="${line#$path}";
+                        sub="${sub#/}";
+                        # `tput lines` `tput cols` = `stty size` = $LINES $COLUMNS
+                        cols=${COLUMNS:-`tput cols`}; # may change during execution
+                        len=0;
+                        for ((i=0; i<${#sub}; i++)); do
+                            [ $((++len)) -ge $cols ] && break;
+                            # [^0-z!\"#$%&\'()*+,-.\/{|\}~]
+                            [[ ${sub:$i:1} == [^0-z!\"\#$%\&\'\(\)*+,-.\/{\|\}~] ]] && ((++len))
+                        done
+                        printf "%*s\r${sub:0:$i}\r" $cols;
+                        i=${#file_list[@]};
+                        [ $i -gt 1 ] && {
+                            ran=$((RANDOM % $i));
+                            file_list[$i]=${file_list[$ran]};
+                            file_list[$ran]="$line"
+                        } || file_list[$i]="$line"
+                    done < <(find $ext "$path" $maxdepth -type f -iregex $regex);
+                    printf '%*s\r\033[?25h' $cols;
+
+                    [ ${#file_list[@]} == 0 ] && exit 1; # media file not found
+
+                    for i in `seq 0 $i`; do
+                        printf "%s\n" "${file_list[$i]}"
+                    done > "$play_list";
+
+                    line_count=${#file_list[@]} last_index=0;
+                    > "$play_list.index";
+                fi
+
+                i=0;
+                while read line; do
+                    [ $((i++)) -lt $last_index ] && continue;
+                    if [ -f "$cache_line" ]; then
+                        __play_title "#$((i - 1)) / $line_count, RANDOM" $line;
+                        __sort_play "$cache_line" "$play_list";
+                        printf "%s" $((i - 1)) > "$play_list.index";
+                    fi
+                    cache_line="$line"
+                done < "$play_list";
+                __sort_play "$cache_line" "$play_list"
+
+                # TODO
+
+            else
+                file_list=();
+                while read line; do
+                    file_list[${#file_list[@]}]="$line"
+                done < <(find $ext "$path" $maxdepth -type f -iregex $regex | sort);
+
+                [ ${#file_list[@]} == 0 ] && exit 1; # media file not found
+
+                i=$((${#file_list[@]} - 1));
+                [ $skip -gt $i ] && exit 1; # skip out of bound
+                for i in `seq $skip $i`; do
+                    __play_title "#$((i + 1)) / ${#file_list[@]} " "${file_list[$((i + 1))]}";
+                    __play_ff "${file_list[$i]}"
+                done
+            fi
+        elif [ -f "$path" ]; then
+            __play_ff "$path"
+        else
+            exit 1; # target not exist
+        fi
+    done
+}
+
+### Camera tools ##Usage: cam [option] [args] ##    --list, -l          List camera device #    --show, -s   [video_id [audio_id]] [[[width]x[height]] [[num]fps]] #                        Display target camera #                        e.g. #                            cam -s 3 720x480 15fps ##
+_x3rd_cam () {
+    case $1 in
+        --list|-l)
+            which ffmpeg >/dev/null 2>&1 || exit 1; # ffmpeg command not found
+            local dev
+            if [[ $OSTYPE == darwin* ]]; then
+                [ "$2" == "-f" ] && sudo killall VDCAssistant; # killall AppleCameraAssistant
+                dev=avfoundation
+            else
+                dev=x11grab
+            fi
+            ffmpeg -hide_banner -f $dev -list_devices true -i "" 2>&1 | grep \]
+        ;;
+        --show|-s)
+            shift;
+            which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
+            which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
+            xlib inum $1 || exit 1; # first args error
+            local device_index fmt framerate video_size
+            shift
+            while [ "$1" ]; do
+                case $1 in
+                    [0-9]|[1-9][0-9])
+                        device_index=$1;
+                        shift
+                    ;;
+                    *[0-9]x[1-9]*)
+                        video_size="-video_size $1";
+                        shift
+                    ;;
+                    [1-9][0-9]*fps)
+                        framerate="-framerate ${1%%[^0-9]*}";
+                        shift
+                    ;;
+                    *)
+                        exit 1; # invalid option
+                    ;;
+                esac
+            done
+            [[ $OSTYPE == darwin* ]] && fmt=avfoundation || fmt=x11grab;
+
+            # Supported pixel formats:
+            #     uyvy422
+            #     yuyv422
+            #     nv12
+            #     0rgb
+            #     bgr0
+
+            # -probesize 32
+            # -tune zerolatency
+            # -fflags nobuffer
+
+            ffplay -hide_banner -f $fmt $video_size $framerate -fflags nobuffer -pixel_format bgr0 -i $device_index 2>&1
+            # ffplay -f avfoundation $video_size -framerate 29 -pixel_format 0rgb -i "XI100DUSB-HDMI":"XI100DUSB-HDMI Audio" 2>&1
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac
+}
+
+### Get some urls ##Usage: urls [options] [args...] ##    --chrome,    -c  [mac-arm|mac-intel|win64|win32]  Get chrome url which last stable version #    --jetbrains, -j                     Get jetbrains urls which last stable version #    --eclipse,   -e                     Get last version eclipse and sha1 #    --firefox,   -f                     Get firefox##
+_x3rd_urls () {
+    # https://github.com/google/omaha/blob/master/doc/ServerProtocol.md
+    # https://github.com/google/omaha/blob/master/doc/ServerProtocolV3.md
+    # https://chromium.googlesource.com/chromium/src.git/+/master/docs/updater/protocol_3_1.md
+    case $1 in
+        --chrome|-c)
+            local i platform version arch appid ap;
+            shift;
+            for i in "$@"; do
+                case $i in
+                    mac-arm)
+                        platform='mac';
+                        version='10.16';
+                        arch='arm64';
+                        appid='com.google.Chrome';
+                        ap=''
+                    ;;
+                    mac-intel)
+                        # https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg
+                        platform='mac';
+                        version='10.15';
+                        arch='x64';
+                        appid='com.google.Chrome';
+                        ap=''
+                    ;;
+                    win64)
+                        # https://www.google.cn/chrome/thank-you.html?standalone=1&platform=win64&installdataindex=empty
+                        platform='win';
+                        version='10.0';
+                        arch='x64';
+                        appid='{8A69D345-D564-463C-AFF1-A69D9E530F96}';
+                        ap='x64-stable-multi-chrome'
+                    ;;
+                    win32)
+                        platform='win';
+                        version='10.0';
+                        arch='x86';
+                        appid='{8A69D345-D564-463C-AFF1-A69D9E530F96}';
+                        ap='-multi-chrome'
+                    ;;
+                    *)
+                        exit 1; # Args not support, input 'mac-intel|mac-arm|win64|win32'
+                    ;;
+                esac
+
+                local codebase hash_sha256 name;
+                eval "$(
+                    curl --connect-timeout 30 --silent --request POST --data \
+                        '<?xml version="1.0" encoding="UTF-8"?>
+                        <request protocol="3.1" ismachine="0" updaterchannel="stable">
+                            <os platform="'$platform'" version="'$version'" arch="'$arch'"/>
+                            <app appid="'$appid'" release_channel="stable" ap="'$ap'">
+                                <updatecheck/>
+                            </app>
+                        </request>' \
+                        https://tools.google.com/service/update2 | \
+                    awk -F '[[:blank:]]|\/>' '{for(i=1; i<=NF; i++) if($i ~ /codebase.*dl\.|^name|hash_sha256/){print $i}}' 2>/dev/null
+                )"
+
+                [ "$codebase" ] && printf "sha256: %s *%-41s %s\n" "$hash_sha256" "$name" "$codebase$name"
+            done
+        ;;
+        --jetbrains|-j)
+            # curl -L 'https://data.services.jetbrains.com/products?code=IIC,RR&release.type=eap,rc,release,preview&fields=distributions,link,name,releases'
+            # curl -L 'https://data.services.jetbrains.com/products?fields=code,intellijProductCode,alternativeCodes,name,releases.date,releases.type,releases.version,releases.majorVersion,releases.build'
+            curl --location --connect-timeout 20 \
+                "https://data.services.jetbrains.com/products/releases?code=$(
+                    curl --location 'https://data.services.jetbrains.com/products?fields=code,categories' 2>/dev/null | \
+                        awk -F \" '{for(i=1; i<=NF; i++) {if($i == "code" && $(i+6) == "IDE") { printf "%s,", $(i + 2); }}}' | \
+                        sed 's/CPPP//g'
+                )&type=release&latest=true" 2>/dev/null | \
+                    awk -F \" '{for(i=1; i<=NF; i++) {if($i == "thirdPartyLibrariesJson") { i += 9; }; if(($i == "link" || $i == "checksumLink") && $(i + 2) !~ /-patch-/) { print $(i + 2); }}}' | \
+                    sort -V | uniq
+        ;;
+        --eclipse|-e)
+            # 1       https://download.eclipse.org
+            # 1093    https://mirrors.ustc.edu.cn/eclipse
+            # 1275    https://mirrors.tuna.tsinghua.edu.cn/eclipse
+            # 1142    https://mirrors.neusoft.edu.cn/eclipse
+            # 1290    https://mirrors.nju.edu.cn/eclipse
+            # curl -L https://www.eclipse.org/downloads/packages/ 2>/dev/null | \
+            #     awk '/>Eclipse IDE [^<>]+ Packages</{gsub(/.*IDE | Pack.*/, ""); system("curl -L \"https://www.eclipse.org/downloads/packages/admin/release_tracker/json/" $0 "/macosx\" 2>/dev/null")}' | \
+            #     awk -F \" '{for(i=1; i<=NF; i++) if($i ~ /download.php/) {gsub(/\\/, "", $i); system("curl -L \"" $i "&mirror_id=1093\" 2>/dev/null" )}}' | \
+            #     awk -F \" '/click here/{for(i=1; i<=NF; i++) if($i ~ /^http/) print $i}'
+            curl -L https://www.eclipse.org/downloads/packages/ 2>/dev/null | \
+                awk '/>Eclipse IDE [^<>]+ Packages</{gsub(/.*IDE | Pack.*/, ""); system("curl -L \"https://www.eclipse.org/downloads/packages/admin/release_tracker/json/" $0 "/macosx\" 2>/dev/null")}' | \
+                awk -F \" '{for(i=1; i<=NF; i++) if($i ~ /download.php/) {gsub(/\\/, "", $i); sub(/.*=/, "", $i); a[j++]=$i; print "https:\/\/mirrors.ustc.edu.cn\/eclipse" $i}};END{for(i in a)system("curl -L \"https://www.eclipse.org/downloads/sums.php?file=" a[i] "&type=sha1\"; echo");}'
+
+        ;;
+        --firefox|-f)
+            printf 'wget --no-clobber --content-disposition \\\n';
+            printf "'https://download.mozilla.org/?product=firefox-latest&os=%s&lang=%s' \\\\\n" \
+                win64 zh-CN osx zh-CN linux64 zh-CN
+        ;;
+        *)
+            exit 1; # Args not support
+        ;;
+    esac
+}
+
+### Maven repository tools ##usage: m2 [option] #    --download, -d [groupId]/[artifactId][[/version]] #                                       Get Download maven file to $HOME/.m2/repository #    --trim,     -c [[repo_path]]       Print broken file from local maven repository. ##
+_x3rd_m2 () {
+    case $1 in
+        --download|-d)
+            shift;
+            _m2_download "$@"
+        ;;
+        --trim|-c)
+            local _lu=0 line _hash _h;
+            while read line; do
+                unset _hash _h;
+                case ${line##*.} in
+                    lastUpdated)
+                        ((_lu++));
+                        rm -f "$line"
+                    ;;
+                    sha1|md5)
+                        read -d , _hash < $line;
+                        _hash=$(tr "[:upper:]" "[:lower:]" <<< "${_hash%% *}");
+                        _hash=${_hash//[^0-9A-Fa-f]/};
+                        _h=$(openssl ${line##*.} "${line%.*}" | awk '{for(i=1; i<=NF; i++)if($i ~ /^[0-9A-Fa-f]+$/)printf $i}' | tr "[:upper:]" "[:lower:]");
+                        [ "$_hash" == "$_h" ] || \
+                            printf "rm -fv ${line%.*}* # ${line##*.} $_hash, $_h\n"
+                    ;;
+                    *)
+                        :
+                    ;;
+                esac
+            done < <(
+                find ${2:-$HOME/.m2} -type f -iname "*.lastUpdated" -o -iname "*.sha1" -o -iname "*.md5"
+            )
+
+            printf "# lastUpdated: $_lu\n"
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac
+}
+
+_m2_download () {
+    local i _ver _m2=$@;
+
+    [ "http" != "${_m2:0:4}" -a "${_m2}" -a "${_m2/\//}" != "${_m2}" ] || exit 1; # args error
+
+    # Support -np
+    while [ "/" == "${_m2:0-1}" ]; do
+        _m2=${_m2:0:-1};
+    done;
+
+    _ver=${_m2##*/};
+    _m2=${_m2%/*};
+    # Replace period to '/'
+    _m2=${_m2//\./\/}/${_ver};
+
+    # link target to $HOME/.m2/repository
+    ln -s $HOME/.m2/repository /tmp/maven2 2>/dev/null || {
+        ps -ef | awk '/repo1.maven.org\/maven2/' >/dev/null && exit 1 # m2 command is already running
+    };
+
+    function __m2_get () {
+        local url;
+        while read url; do
+            [ "/" == "${url:0-1}" ] && {
+                # Is directory
+                mkdir /tmp/maven2/${1:30}$url;
+                __m2_get ${1}$url || :;
+            } || {
+                let ++i; # Count download file
+                printf "\nSaving to: /tmp/maven2/${1:30}$url -- ${1}$url\n\n";
+                # Not directory
+                curl ${1}$url -o /tmp/maven2/${1:30}$url
+            };
+        done < <(curl ${1}index.html | awk -F "a href=\"" '{printf "%s\n",$2}' | awk -F "\"" '{printf "%s\n",$1}' | grep -vE "^$|^\?|^http:\/\/")
+    };
+
+    which wget >/dev/null 2>&1 && {
+        # Drop args -m -k
+        wget -r -np -nc -nH -R html -e robots=off -P /tmp \
+        -U 'Mozilla/5.0 (X11; Linux x86_64; rv:31.0) Gecko/20100101 Firefox/31.0' \
+        http://repo1.maven.org/maven2/${_m2}/ || :
+    } || {
+        which curl >/dev/null 2>&1 && {
+            # Not support create directory
+            mkdir -p /tmp/maven2/${_m2};
+            __m2_get http://repo1.maven.org/maven2/${_m2}/;
+            printf "\nDownloaded: $i files\n"
+        } || exit 1; # wget and curl command not found
+    };
+
+    # Drop link
+    rm -f /tmp/maven2;
+
+    return 0
+}
+
+### Virtual Machines controller ##Usage: vm [list|start]
+_x3rd_vm () {
+    case $1 in
+        ""|list)
+            for vn in ~/Virtual\ Machines.localized/*.vmwarevm/*.vmx; do
+                vn="${vn##*/}";
+                printf "%s\n" "${vn%.*}";
+            done
+        ;;
+        start)
+            shift;
+            [ -f "$HOME/Virtual Machines.localized/"$1".vmwarevm/"$1".vmx" ] || exit 1; # vm not exist.
+            vmrun -T fusion start ~/Virtual\ Machines.localized/"$1".vmwarevm/"$1".vmx nogui
+        ;;
+        *)
+            exit 1; # invalid option
+        ;;
+    esac
+}
+
+
+### Compress PNG images ##Usage: png [src_dir] [out_dir] ##[WARN] only support ascii name
+_x3rd_png () {
+    which pngquant >/dev/null 2>&1 || exit 1; # pngquant command not found
+    [ -d "$1" ] || exit 1; # source path not exist
+    [ "$2" ] || exit 1; # output path not set
+    local line src="${1%/}" out="${2%/}" tag;
+    while read line; do
+        tag="$out/${line#$src/}";
+        [ -d "${tag%/*}" ] || mkdir -p "${tag%/*}";
+        pngquant --quality 70-90 --speed 1 --strip --verbose --output "$tag" "$line"
+    done < <(
+        find "$src" -type f -iname "*.png"
+    )
+}
+
+### Convert some png to pdf##Usage: pdf [dir...]
+_x3rd_pdf () {
+    which convert >/dev/null 2>&1 || exit 1; # convert command not found
+    local i OLDPWD="$PWD";
+    for i in "$@"; do
+        [ -d "$i" ] || {
+            printf "%s\n" "$i not a dir" >&2;
+            continue
+        };
+        # http://www.imagemagick.org/Usage/blur/
+        # http://www.imagemagick.org/Usage/resize/#resize_unsharp
+        # http://www.imagemagick.org/Usage/convolve/#unsharpen
+
+        # convert -sharpen 0x3.3 *.png -resize 48% zongzhi-3.3.pdf
+        # convert *.png -filter spline -resize 48% -unsharp 0x1 zongzhi+.pdf
+        cd "$i" && convert *.png -resize 620x-1 -define convolve:scale=-100,200% -morphology Convolve 'Gaussian:0x2' ../"${PWD##*/}".pdf
+
+    done
+    cd "$OLDPWD";
+
+}
+
+
+### Replace brew source #rewurl [app_name] #
+# _x3rd_brewurl () {
+#     [ "$1" ] || exit 1; # first args is empty
+#     grep -r \'$1\' /usr/local/Library/Formula/* 2>/dev/null;
+#     echo -e "\nNeed replace like file:///Volume/Data/$1";
+#     return 0
+# }
+
+#################################################
+#                   Framework                   #
+# # # # # # # # # # # # # # # # # # # # # # # # #
+
+# Print Error info
+_func_err () {
+    [[ "$4$6" == exit_${0##*/}* ]] && {
+        # local err=`awk 'NR=='$2'{print}' "$0"`;
+        local err=`sed -n $2p "$0"`
+        # Print line text after '#'
+        printf "\033[31mError:${err##*#} \033[33m($0:$2)\033[0m\n" >&2;
+        exit $(($5 % 256))
+    };
+
+    # WARRAN: 0 <= $? <= 255, return 256: $? = 0
+    [ "$4" == "return" ] && exit $(($5 % 256));
+
+    # Get script line
+    [ $1 == 127 ] && {
+        # No function found
+        printf "\033[31mError: No function found \033[0m\n" >&2;
+        exit 1
+    };
+
+    exit 0
+}
+
+# Show function info
+_func_annotation () {
+    local i j k OLDIFS IFS=$IFS\({;
+    # Cache IFS
+    OLDIFS=$IFS;
+
+    [ "$1" ] && {
+        # show select
+        while read i j; do
+            # Make array splite with #
+            [ "$i" == "###" ] && {
+                IFS=#;
+                k=($j);
+                # Reset IFS
+                IFS=$OLDIFS
+            };
+            # At target func name
+            [ "$k" -a "$i" == "_${0##*/}_$1" ] && {
+                # Print all annotation
+                for i in ${!k[@]}; do
+                    printf "${k[$i]}\n";
+                done;
+                return 0
+            };
+            # Reset var
+            [[ "$i" == _${0##*/}* ]] && [ "$j" == ")" ] && unset k;
+        done < "$0"; # Scan this script
+        return 1
+    } || {
+        # show all
+        while read i j; do
+            # Cache intro
+            [ "$i" == "###" ] && k=${j%%#*};
+            # At func name
+            [ "${i%_*}" == "_${0##*/}" -a "$j" == ")" ] && {
+                # Left aligned at 15 char
+                printf "%-15s%s\n" ${i##*_} "$k";
+                # Clear var
+                unset k
+            };
+        done < "$0"; # Scan this script
+    }
+
+}
+
+# Cache exit
+trap '_func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
+
+# # # # # # # # # # # # # # # # # # # # # # # # #
+#                   Framework                   #
+#################################################
+
+# Test if help
+[[ ! "$1" || "$1" == "-h" || "$1" == "--help" ]] && {
+    _func_annotation | sort;
+    exit 0
+} || [[ "$2" == "-h" || "$2" == "--help" ]] && {
+    # Test if help
+    _func_annotation $1 || printf "\033[31mError: No function found \033[0m\n" >&2;
+    exit $?
+};
+
+# main
+_${0##*/}_"$@"

@@ -1,0 +1,784 @@
+#!/bin/bash
+#   Copyright 2021 bin jin
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+# unset functions
+unset $( set | awk '/^__xj_[0-9a-z_]+[[:space:]]\(/{printf " " $1}');
+
+__xj_run () {
+    # todo XJ_JAR_ARGS support ""
+    if [ "$XJ_MAIN_CLASS_PATH" ]; then
+        set -- java $XJ_JAVA_ARGS -cp "$XJ_JAR_FILE" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+    else
+        set -- java $XJ_JAVA_ARGS -jar "$XJ_JAR_FILE" $XJ_JAR_ARGS;
+    fi
+
+    [ -e "${XJ_JAVA_BIN_DIR%/}/java" ] && export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH;
+
+    [ -x $XJ_MINUS_1_ARG ] && set -- $XJ_MINUS_1_ARG "$@";
+
+    (
+        export SHELL=/sbin/nologin;
+        readonly SHELL;
+        if [ "$xj_jar_log_prefix" ]; then
+            {
+                # unset environment variables and functions
+                unset $( set | awk -F '[=[:space:]]' '/^(__)?(XJ|xj)_[0-9A-Za-z_]+(=|[[:space:]]\()/{printf " " $1}');
+                nohup < /dev/null "$@"
+            } 2>&1 | awk '{print '"$xj_jar_log_prefix"';fflush(stdout)}' &
+
+        else
+            unset $( set | awk -F '[=[:space:]]' '/^(__)?(XJ|xj)_[0-9A-Za-z_]+(=|[[:space:]]\()/{printf " " $1}');
+            nohup < /dev/null "$@" 2>&1 &
+
+        fi
+
+    )
+    exit 0
+
+}
+
+__xj_test_zip_head() {
+    local xj_file_head xj_zip_head;
+    printf -v xj_zip_head PK\\x03\\x04;
+    read xj_file_head 2>/dev/null < "$1";
+    [ "$xj_zip_head" == "${xj_file_head:0:4}" ] || {
+        printf "[${XJ_B_RED}ERROR${XJ_RE}] '$1' not jar file.\n" >&2;
+        return 1
+    };
+    return 0
+}
+
+[ "$XJ_JAR_FILE" ] && {
+    __xj_test_zip_head "$XJ_JAR_FILE" || exit 1;
+    __xj_run;
+    exit
+}
+
+__xj_out2() {
+    XJ_OUT2=tty
+    local fd;
+    for fd in /proc/$$/fd/*; do
+        [ ${fd##*/} == 0 -o "$fd" -ef "$0" ] && continue;
+        if [ -f "$fd" ]; then
+            XJ_OUT2=file;
+            break
+        elif [ -p "$fd" ]; then
+            XJ_OUT2=pipe;
+            break
+        fi
+    done
+}
+
+__xj_permission() {
+    [ $UID == 0 ] || {
+        printf "[${XJ_B_RED}ERROR${XJ_RE}] Permission denied, try using '${XJ_GREEN}sudo %s${XJ_RE}' command.\n" "${0##*/} $@" >&2;
+        exit 1
+    }
+}
+
+__xj_usage_help() {
+
+        printf "
+usage: ${0##*/} [param...] ${XJ_BOLD}[option]${XJ_RE} [args...]
+
+param:
+    -d | --dir   path [path...] ${XJ_BOLD}[option]${XJ_RE}  batch run option.
+    -h | --help                           print full help info.
+
+${XJ_BOLD}option${XJ_RE}:
+    start   [-D|--debug [port]]     start jar if not run. (support debug)
+            [--live]                restart jar if not run,
+                                    and logging live every 10 minutes.
+    stop    [-f]                    stop jar process. (force stop)
+    log     [[lines] -[days]]       print last n lines and n days before log. (default $XJ_LOG_PRINT_LAST_LINES lines)
+                                e.g.
+                                    ${0##*/} log 100 -0 # today the last 100 lines.
+                                    ${0##*/} log 500 -0 | grep -B 5 -A 15 -i error # search error log
+
+            [--redirect]            redirect stdout and stderr file
+                                e.g.
+                                    ${0##*/} log --redirect
+
+            [--cron [path]]         auto redirect log file every day.
+                                e.g.
+                                    ${0##*/} log --cron /var/run
+
+            [--rm [days]]           delete log file which modified more than n days. (only print command)
+                                e.g.
+                                    ${0##*/} log --rm 30 | bash
+
+    restart [-D|--debug [port]]     restart jar process. (support debug)
+    status  [-v]                    show process info. (and threads info)
+                            exec:   thread_name.
+                            flt:    major_page_faults+minor_page_faults.
+                            kfun:   kernel_function.
+                            lsn:    listen_port/protocol(established_count/link_count).
+                            send:   protocol(link_count/ip_port_count).
+                            thrd:   thread_count.
+                            time:   days-hours:minute.
+                            u:      user.
+                                e.g.
+                                    ${0##*/} status -v | sort -k 5
+
+    info    [--help|-h]             show setting. (config e.g.)
+
+e.g.
+    xjar -d .
+    xjar start -D 8081
+    xjar -d /var/run restart -D 8081
+    xjar stop -f
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; xjar -d \$JAR_DIR1 \$JAR_DIR2 restart'
+    ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no user@hostname 'export PATH=\$PATH:\$HOME/bin; cd \$JAR_DIR; xjar restart; sleep 30; xjar || { xjar log -0 100; exit 1; }'
+
+" >&2
+
+}
+
+__xj_conf_help() {
+        [ "$UID" == "0" ] || printf "
+visudo:
+    cat >> ${XJ_GREEN}/etc/sudoers${XJ_RE} <<-EOF${XJ_REVERSE}
+Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin:/usr/local/bin
+
+# Cmnd alias specification
+Cmnd_Alias  JAR_RUNNER = $0
+
+# User privilege specification
+$USER       ALL=(ALL)   NOPASSWD: JAR_RUNNER
+${XJ_RE}EOF
+" >&2;
+
+        printf "
+Globle config:
+    cat > ${XJ_GREEN}/etc/xjar.conf${XJ_RE} <<-EOF${XJ_REVERSE}
+LANG=zh_CN.UTF-8;
+LC_ALL=zh_CN.UTF-8;
+FIND_JAR_MAX_DEPTH=2;
+# LOG_PRINT_LAST_LINES=69
+# LOCAL_XJAR_CONFIG_NAME=.xjarconf
+# MINUS_1_ARG=./run.sh
+JAVA_ARGS=' -Xmx1024m'
+JAVA_ARGS+=' -Xms1024m'
+${XJ_RE}EOF
+
+User config:
+    cat > ${XJ_GREEN}$HOME/.xjarc${XJ_RE} <<-EOF${XJ_REVERSE}
+JAR_LOG_DIR_PRE=/var/log/java;
+JAR_LOG_DIR_SUF=/console;
+LIVE_LOG_DIR=/var/log/xjar-live;
+JAR_ARGS=' --config.location=./application.yml'
+# JAVA_BIN_DIR=/usr/lib/jvm/openjdk-8/bin
+STOP_TIMEOUT=30
+${XJ_RE}EOF
+
+Local config:
+    cat > ${XJ_GREEN}$XJ_LOCAL_XJAR_CONFIG_NAME${XJ_RE} <<-EOF${XJ_REVERSE}
+# JAR_LOG_DIR=/var/log/java/xxx/console; # Deprecated
+# LOG_PREFIX='%%F %%T,'
+DEBUG_PORT=9000;
+# MAIN_CLASS_PATH='java.util.prefs.Base64'
+JAR_ARGS=' --prefix=/xxx'
+${XJ_RE}EOF
+
+" >&2
+
+}
+
+# awk strftime
+__xj_pipe_pid () {
+    [ "$1" ] || return 1;
+    local xj_awk_pid xj_awk_pipe xj_fd_1="$(readlink --canonicalize /proc/$1/fd/1)";
+    if [ "${xj_fd_1/\/pipe:\[/}" != "$xj_fd_1" ]; then
+        while read xj_awk_pid xj_awk_pipe; do
+            [ "${xj_fd_1%"$xj_awk_pipe"}" == "$xj_fd_1" ] || {
+                printf $xj_awk_pid;
+                return 0
+            };
+        done < <(ps -eo pid,cmd | awk '/strftime\(/{system("readlink --canonicalize /proc/" $1 "/fd/0")}' | awk -F '/' '{print $3, $5}')
+        # if not found awk process by pipe, override stdout and stderr by text file.
+    fi
+    return 1
+}
+
+__xj_redirect() {
+    [ "$(readlink --canonicalize /proc/$1/fd/1)" == "$2" ] && return 0;
+    [ -s "$2" ] && return 1;
+    mkdir -p "${2%/*}" || return 1;
+    touch "$2";
+    chown $3 "$2"; # ps -p $1 -o user | awk '{if(NR == 2) printf $1}'
+#     gdb -p $1 >/dev/null 2>&1 <<GDB
+# set scheduler-locking on
+# print close(1)
+# print open("$2", 1)
+# print close(2)
+# print open("$2", 1)
+# quit
+# GDB
+    # # https://github.com/jerome-pouiller/reredirect
+    reredirect -N -m "$2" $1
+
+}
+
+__xj_test_command() {
+    which $1 >/dev/null 2>&1 && return 0;
+    printf "[${XJ_B_RED}ERROR${XJ_RE}] '%s' command ${XJ_RED}not${XJ_RE} found or ${XJ_RED}not${XJ_RE} in '\$PATH'\n" $1 >&2;
+    return 1;
+}
+
+__xj_test_workspace() {
+    [ -s "$XJ_JAR_FILE" ] && return 0;
+    printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not work directory.\n" "$PWD" >&2;
+    exit 1
+}
+
+__xj_test_single_process() {
+    [ "${xj_java_pid/[^0-9]/}" == "$xj_java_pid" ] && return 0;
+    printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] not single process. pid: ${XJ_BOLD}%s${XJ_RE}\n" $xj_jar_name, "${xj_java_pid//[^0-9]/ }" >&2;
+    exit 1
+}
+
+__xj_load_config() {
+    [ -s "$1" ] && eval $(awk -F \# '$1 ~ /=/{gsub(/^[[:space:]]+|[[:space:]]+$|;[[:space:]]*$/, "", $1); if(match($1, /^[^=]+="/)){sub(/="/, "=", $1); sub(/"$/, "", $1)}; gsub(/[`"\\]|\$\(/, "\\\\&", $1); printf "export XJ_"; if(match($1, /^[^=]+='\''/)) { print $1 } else print gensub(/=/, "&\"", 1, $1) "\""}' "$1");
+}
+
+__xj_java_args() {
+    if [ "$XJ_MAIN_CLASS_PATH" ]; then
+        set -- $XJ_JAVA_ARGS -cp "$XJ_JAR_FILE" $XJ_MAIN_CLASS_PATH $XJ_JAR_ARGS;
+    else
+        set -- $XJ_JAVA_ARGS -jar "$XJ_JAR_FILE" $XJ_JAR_ARGS;
+    fi
+    printf '%s' "$*"
+}
+
+__xj_main() {
+    # unset environment variables
+    unset CLASSPATH JAVA_HOME $( set | awk -F = '/^(XJ|xj)_[0-9A-Za-z_]+=/{printf " " $1}');
+    __xj_out2;
+
+    [ "$XJ_OUT2" == "tty" ] && {
+        # console_codes
+        XJ_RE='\x1b[0m';
+        XJ_BOLD='\033[1m';
+        XJ_B_RED='\e[1;31m';
+        XJ_RED='\e[31m';
+        XJ_GREEN='\e[32m';
+        XJ_BROWN='\e[33m';
+        XJ_BLUE='\e[34m';
+        XJ_REVERSE='\e[7m';
+    }
+
+    XJ_LOCAL_XJAR_CONFIG_NAME='.xjarconf';
+    XJ_LOG_PRINT_LAST_LINES=69;
+    XJ_FIND_JAR_MAX_DEPTH=2;
+
+    __xj_load_config /etc/xjar.conf;
+    __xj_load_config $HOME/.xjarc;
+    __xj_load_config $XJ_LOCAL_XJAR_CONFIG_NAME;
+    eval $( set | awk '{if($_ ~ /^{[[:space:]]|[[:space:]]\(\)[[:space:]]$/) exit; if($_ !~ /^(XJ_|_=)/ && $_ ~ /^[A-Z_]+=[^(][^*]{,128}$/){print "export XJ_" $0}}');
+    [ "$XJ_JAVA_BIN_DIR" ] && { [ ! -e "${XJ_JAVA_BIN_DIR%/}/java" ] && { printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not java bin directory.\n" "$XJ_JAVA_BIN_DIR" >&2; exit 1; }; export PATH=${XJ_JAVA_BIN_DIR%/}:$PATH; }
+
+    if [ "$XJ_JAR_LOG_DIR" ]; then
+        :
+    elif [ "$XJ_JAR_LOG_DIR_PRE" ]; then
+        XJ_JAR_LOG_DIR="${XJ_JAR_LOG_DIR_PRE%/}/${PWD##*/}/${XJ_JAR_LOG_DIR_SUF#/}";
+    else
+        if [ "$XJ_JAR_LOG_DIR_SUF" ]; then
+            XJ_JAR_LOG_DIR="/var/log/java/${PWD##*/}/${XJ_JAR_LOG_DIR_SUF#/}"
+        else
+            XJ_JAR_LOG_DIR="/var/log/java/${PWD##*/}/console"
+        fi
+    fi
+    XJ_JAR_LOG_DIR="${XJ_JAR_LOG_DIR%/}";
+
+    : ${XJ_LIVE_LOG_DIR:='/var/log/xjar-live'};
+
+    for XJ_JAR_FILE in "$PWD/"*.jar; do
+        [ -f "$XJ_JAR_FILE" ] && \
+            [ "$XJ_JAR_FILE$XJ_JAR_FILE" == \
+                "${XJ_JAR_FILE/[_-\.]'sources'[_-\.]/}${XJ_JAR_FILE/[_-\.]'src'[_-\.]/}" ] && \
+                __xj_test_zip_head "$XJ_JAR_FILE" && break;
+        unset XJ_JAR_FILE
+
+    done
+    XJ_JAR_FILE="${XJ_JAR_FILE/*\**/}"; # unset XJ_JAR_FILE if jar file not found
+
+    [ -s "$XJ_JAR_FILE" ] && {
+        xj_jar_name="${XJ_JAR_FILE##*/}";
+        xj_jar_name="${xj_jar_name%.*}";
+        # xj_args_file="$XJ_JAR_LOG_DIR/$xj_jar_name.args";
+        xj_jar_dir="${XJ_JAR_FILE%/*}/";
+        xj_user=`ls -l "$XJ_JAR_FILE" | awk '{if(NR == 1) printf $3}'`;
+        xj_group=$(id -gn ${xj_user:-0,} 2>/dev/null) || {
+            printf "[${XJ_B_RED}ERROR${XJ_RE}] the file '${XJ_GREEN}%s.jar${XJ_RE}' owner user '${XJ_GREEN}%s${XJ_RE}' does not exist.\n" "$xj_jar_name" "$xj_user" >&2;
+            exit 1
+        }
+        xj_java_pid=$(ps -eo pid,cmd | awk '/^[[:space:]]*[0-9]+[[:space:]]+java[[:space:]].*'"${xj_jar_dir//\//\\/}"'.*\.jar/{print $1}');
+
+        [ "$XJ_LOG_PREFIX" ] && {
+            # man date
+            [ "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%[A-DF-IMNPR-Za-eghj-npr-z]/}" -a "$XJ_LOG_PREFIX" == "${XJ_LOG_PREFIX/\%-[A-DF-IMNPR-Za-eghj-npr-z]/}" ] && {
+                printf "[${XJ_B_RED}ERROR${XJ_RE}] ${XJ_BOLD}LOG_PREFIX${XJ_RE} invalid option: '${XJ_BROWN}%s${XJ_RE}' in '${XJ_GREEN}%s${XJ_RE}'\n" "$XJ_LOG_PREFIX" "$XJ_LOCAL_XJAR_CONFIG_NAME" >&2;
+                exit 1
+
+            };
+            xj_jar_log_prefix='strftime("'"$XJ_LOG_PREFIX"'"), $0'; # for awk
+
+        };
+    };
+
+    __xj_fd_file() { local xj_fd; readlink `for xj_fd in /proc/$1/fd/*; do [ -f $xj_fd ] && printf " %s" $xj_fd; done`; }
+    __xj_colorless() { [ "$XJ_OUT2" != "tty" ] && { sed --unbuffered --regexp-extended 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]|\r//g'; :; } || cat; }
+
+    case $1 in
+        start)
+            __xj_permission "$@";
+            __xj_test_command java || exit 1;
+            __xj_test_workspace;
+
+            [ "$2" == "--live" ] && {
+                mkdir -p "$XJ_LIVE_LOG_DIR";
+                if [ "$xj_java_pid" -a "${xj_java_pid/[^0-9]/}" == "$xj_java_pid" ]; then
+                    # print every 10 minutes
+                    [ $((1`date +%M` % 10)) == 0 ] && printf "%s\n" live
+
+                else
+                    printf "restart: ";
+                    free -h | awk '/Mem:/{printf "u/a: %s/%s\n", $3, $2}';
+                    export TEAMCITY_VERSION=none TERM=dumb;
+                    nohup < /dev/null bash "$0" restart >/dev/null 2>&1 &
+
+                fi
+
+            } 2>&1 | awk -v dir_prefix="$XJ_LIVE_LOG_DIR" -v arg_name=$xj_jar_name \
+                '{printf "%s, %-26s %s\n" ,strftime("%F %T"), arg_name ",", $0 >> strftime(dir_prefix "/live_%Y%m%d.log");fflush(stdout)}' && \
+                    exit 0
+
+            __xj_test_command reredirect || :;
+            __xj_test_command readlink || :;
+            __xj_test_single_process;
+            [ "$xj_java_pid" ] && { printf "name:${XJ_BOLD}%-26s${XJ_RE} is running.\n" $xj_jar_name; exit 1; } >&2;
+            shift;
+            case $1 in
+                "") :;;
+                --debug|-D)
+                    [ "$2" ] && xj_port=$2 || xj_port=$XJ_DEBUG_PORT;
+                    [ "$xj_port" ] || {
+                        printf "[${XJ_B_RED}ERROR${XJ_RE}] DEBUG_PORT ${XJ_RED}not${XJ_RE} set\n" >&2;
+                        exit 1
+
+                    };
+
+                    xj_java_main_version=$(java -version 2>&1 | awk -F '[[:space:]".]' '/version/{print $4 * 1000 + $5}');
+                    if [ $xj_java_main_version -lt 1005 ]; then
+                        XJ_JAVA_ARGS+=" -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=$xj_port";
+
+                    elif [ $xj_java_main_version -gt 1008 ]; then
+                        XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:$xj_port";
+
+                    else
+                        XJ_JAVA_ARGS+=" -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=$xj_port";
+
+                    fi
+
+                    # jdb -connect com.sun.jdi.SocketAttach:hostname=127.0.0.1,port=$xj_port
+
+                    unset xj_java_main_version xj_port
+
+                ;;
+                *)
+                    printf "[${XJ_B_RED}ERROR${XJ_RE}] Invalid option: start '${XJ_BROWN}%s${XJ_RE}'\n" "$1" >&2;
+                    __xj_usage_help;
+                    exit 1
+
+                ;;
+            esac
+
+            mkdir -pv "$XJ_JAR_LOG_DIR";
+            chown -R $xj_user:$xj_group "$XJ_JAR_LOG_DIR";
+            # echo "$@" > "$xj_args_file" && chown $xj_user:$xj_group "$xj_args_file";
+            xj_jar_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+
+            if [ "$XJ_MINUS_1_ARG" -a -s "$XJ_MINUS_1_ARG" ]; then
+                [ -x "$XJ_MINUS_1_ARG" ] || {
+                    printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' not have executable permissions.\n" "$XJ_MINUS_1_ARG" >&2;
+                    exit 1
+                };
+            fi
+
+            export XJ_JAVA_BIN_DIR XJ_JAR_FILE xj_jar_log_prefix XJ_JAVA_ARGS XJ_JAR_ARGS XJ_MAIN_CLASS_PATH XJ_MINUS_1_ARG;
+            [ "$XJ_LANG" ] && export LANG=$XJ_LANG;
+            [ "$XJ_LC_ALL" ] && export LC_ALL=$XJ_LC_ALL;
+
+            touch "$xj_jar_log_file";
+            chown $xj_user:$xj_group "$xj_jar_log_file";
+            su --shell $SHELL $xj_user --command "$0" >> "$xj_jar_log_file" || exit 1;
+
+            [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && {
+                printf "nohup < /dev/null ${XJ_BLUE}java %s${XJ_RE} >> ${XJ_GREEN}%s${XJ_RE} 2>&1 &\n" "$(__xj_java_args)" "$xj_jar_log_file";
+                tail -F -n 0 "$xj_jar_log_file" 2>/dev/null | __xj_colorless
+
+            }
+
+        ;;
+        log)
+            [ "$2" == "--cron" ] || __xj_test_workspace;
+            case $2 in
+                ""|[0-9]*|-[0-9]*)
+                    shift;
+                    [ "$1" == "${1/-[0-9]/}" ] || set -- ${2:-$XJ_LOG_PRINT_LAST_LINES} $1;
+                    xj_days=${2:-0};
+                    if [ "$TERM" != "dumb" -a ! "$TEAMCITY_VERSION" ] && [ ! "$2" ]; then
+                        if [ "$xj_java_pid" ]; then
+                            eval set -- ${1:-$XJ_LOG_PRINT_LAST_LINES} $(
+                                __xj_fd_file $xj_java_pid | awk '/(LOG|log)$/{if(!unique[$0]++) line[++n]=$_}END{for(i=length(line); i>0; i--) printf " \"%s\"", line[i]}'
+                            );
+                            [ "$2" ] && { [ "$3" ] || printf "==> ${XJ_GREEN}%s${XJ_RE} <==\n" "$2"; tail -F -n "$@" | __xj_colorless; exit 0; }
+
+                        fi
+                        set -- -F -n ${1:-$XJ_LOG_PRINT_LAST_LINES}
+
+                    else
+                        if [ "$xj_java_pid" ]; then
+                            set -- ${1:-$XJ_LOG_PRINT_LAST_LINES} ${2:-0};
+                            set -- $1 $(
+                                eval find $(
+                                    __xj_fd_file $xj_java_pid | awk '/\.(LOG|log)$/{
+                                        sub(/\/[^\/]+$/, "");
+                                        if(!unique[$0]++) line[++n]=$0;
+                                    }
+                                    END{
+                                        for (i=1; i<=asorti(unique, sorted_idx); i++) {
+                                            j=0;
+                                            while (sorted_idx[i] "/" == substr(sorted_idx[i + ++j], 1, length(sorted_idx[i]) + 1)) {
+                                                delete unique[sorted_idx[i + j]];
+                                            };
+                                            i+=j-1;
+                                        };
+                                        for(i=length(line); i>0; i--) if(unique[line[i]]) printf " \"%s\"", line[i];
+                                    }'
+                                ) -type f -mtime ${2#-} -iname "*.log"
+                            );
+                            [ "$2" ] && { [ "$3" ] || printf "==> ${XJ_GREEN}%s${XJ_RE} <==\n" "$2"; tail -n "$@" | __xj_colorless; exit 0; }
+
+                        fi
+                        set -- -n ${1:-$XJ_LOG_PRINT_LAST_LINES}
+
+                    fi
+
+                    xj_jar_log_file="$(date -d "$xj_days days" +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+                    printf "==> ${XJ_GREEN}%s${XJ_RE} <==\n" $xj_jar_log_file;
+                    tail $@ "$xj_jar_log_file" 2>/dev/null | __xj_colorless
+
+                ;;
+                --redirect)
+                    __xj_permission "$@";
+                    __xj_test_command reredirect || exit 1;
+                    __xj_test_command readlink || exit 1;
+                    [ "$xj_java_pid" ] || {
+                        [ "$TERM" == "dumb" ] || printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] not running.\n" $xj_jar_name, >&2;
+                        exit 1
+                    };
+                    __xj_test_single_process;
+                    # test awk prefix
+                    xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+                    xj_pid=$(__xj_pipe_pid $xj_java_pid) || xj_pid=$xj_java_pid;
+                    __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
+                        printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] target log file '$xj_jar_new_log_file' exist and not empty.\n" $xj_jar_name, >&2;
+                        exit 1
+                    }
+
+                    chmod a-w "$(date -d -24\ hour +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)" 2>/dev/null;
+
+                ;;
+                --cron)
+                    __xj_test_command crontab || exit 1;
+                    __xj_test_command reredirect || exit 1;
+                    __xj_test_command readlink || exit 1;
+                    shift; shift;
+                    [ "$1" ] || {
+                        printf "[${XJ_B_RED}ERROR${XJ_RE}] directory path not set.\n" >&2;
+                        exit 1
+                    }
+                    [ -d "$1" ] || {
+                        printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' server directory must exist.\n" $1 >&2;
+                        exit 1
+                    };
+                    # todo /etc/cron.d/
+                    xj_cron_expression="0 0 * * * sudo $0 -d ${1%/} log --redirect";
+                    xj_cron_text=$(crontab -l 2>/dev/null);
+                    if [ "$xj_cron_text" ]; then
+                        xj_cron_text_trim=$(awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}' <<< "$xj_cron_text");
+                        if [ "${xj_cron_text_trim/$xj_cron_expression/}" == "$xj_cron_text_trim" ]; then
+                            printf '%s\n%s\n' "$xj_cron_text" "$xj_cron_expression" | crontab -
+                        fi
+                    else
+                        printf '# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * command to be executed
+\n%s\n
+' "$xj_cron_expression" | crontab -
+
+                    fi
+                    crontab -l
+
+                ;;
+                --rm)
+                    __xj_permission "$@";
+                    [ "$3" ] || exit 1;
+                    [ $3 -lt 1 ] && exit 1;
+                    xj_last_mod_days="$3";
+                    set --;
+                    [ "$xj_java_pid" ] && \
+                        eval set -- $(__xj_fd_file $xj_java_pid | awk '/(LOG|log)$/{sub(/\/[^\/]+$/, ""); if(!unique[$0]++) printf " \"%s\"", $0}')
+                    [ "$1" ] || set -- "$XJ_JAR_LOG_DIR";
+
+                    find "$@" -type f -mtime +$xj_last_mod_days -iname "*.log" -printf 'rm -fv "%p" # %TY%Tm%Td\t%s\n' 2>/dev/null | \
+                        awk '{sub(/[0-9]+/, "\t" sprintf("%6.1f", $NF/1024/1024) "M", $NF); print}'
+
+                ;;
+                *)
+                    printf "[${XJ_B_RED}ERROR${XJ_RE}] Invalid option: log '${XJ_BROWN}%s${XJ_RE}'\n" "$2" >&2
+                    exit 1
+                ;;
+            esac
+
+        ;;
+        stop)
+            __xj_permission "$@";
+            __xj_test_workspace;
+            [ "$xj_java_pid" ] || { printf "name:${XJ_BOLD}%-26s${XJ_RE} not running.\n" $xj_jar_name; return 1; } >&2;
+            if [ "$2" == "-f" -o "${XJ_JAR_ARGS/--spring\.config\.location=/}" == "$XJ_JAR_ARGS" ]; then
+                xj_sigspec=9;
+            else
+                xj_sigspec=15;
+            fi
+            kill -$xj_sigspec $xj_java_pid $(__xj_pipe_pid $xj_java_pid);
+            sleep 0.5;
+            xj_wait_limit=${XJ_STOP_TIMEOUT:-30};
+            while ps -p $xj_java_pid >/dev/null; do
+                sleep 1;
+                [ $((xj_wait_limit--)) -le 0 ] && {
+                    printf "[${XJ_B_RED}ERROR${XJ_RE}] kill '${XJ_BOLD}%s${XJ_RE}' faild, pid: ${XJ_BOLD}%s${XJ_RE}\n" $xj_jar_name $xj_java_pid >&2;
+                    exit 1
+                };
+
+            done
+            unset xj_wait_limit xj_sigspec;
+
+        ;;
+        restart)
+            __xj_permission "$@";
+            __xj_test_command java || exit 1;
+            __xj_test_workspace;
+            shift;
+            __xj_main stop;
+            __xj_main start "$@"
+
+        ;;
+        status|"")
+            __xj_test_workspace;
+            __xj_test_command readlink || exit 1;
+            __xj_test_single_process;
+            if [ "$xj_java_pid" ]; then
+                {
+                    ps -o ruser:16,pid,nlwp,pcpu,pmem,rss -p $xj_java_pid;
+                    readlink `for xj_fd in /proc/$xj_java_pid/fd/*; do [ -S $xj_fd ] && printf " %s" $xj_fd; done` 2>/dev/null
+                } | awk -v pre=${PWD##*/} -v arg2="$2" -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" '
+                NR == 2 {
+                    printf "name:"XJ_BOLD"%-26s"XJ_RE" u:"XJ_BOLD"%-12s"XJ_RE" pid:"XJ_BOLD"%-7s"XJ_RE" thrd:"XJ_BOLD"%-6s"XJ_RE" cpu:"XJ_BOLD"%-8s"XJ_RE" mem:"XJ_BOLD"%-8s"XJ_RE XJ_BOLD"%+6s"XJ_RE,
+                        pre ",", $1 ",", $2 ",", $3 ",", $4 "%,", sprintf("%.2f", $6/1024/1024) "g", "(" $5 "%)";
+                    pid=$2;
+                    split("tcp tcp udp udp", proto_arr, /[[:space:]]+/);
+
+                }
+                NR > 2 {
+                    if (/socket:/){
+                        sock_inode[gensub(/[^0-9]+/, "", "g")]++;
+
+                    } else if ($1$2 == "sllocal_address") {
+                        file_idx++;
+
+                    } else if (sock_inode[$10]) {
+                        if($4 == "0A") {
+                            port_listen[proto_arr[file_idx]][gensub(/.*:/, "", 1, $2)]=0;
+
+                        } else if ($4 != "07") {
+                            port_send[proto_arr[file_idx]]["size"]++;
+                            port_send[proto_arr[file_idx]][$3][$4]++;
+
+                        }
+
+                    } else if ($4 ~ /^0[^7A]$/) {
+                        port_hex=gensub(/.*:/, "", 1, $3);
+                        if ($4 == "01") untted_port_estd[proto_arr[file_idx]][port_hex]++;
+                        untted_port_alive[proto_arr[file_idx]][port_hex]++;
+
+                    }
+                }
+                END{
+                    for (proto in port_listen) {
+                        for (port_hex in port_listen[proto]) {
+                            if (!tag4listen++) printf ", lsn:";
+                            if (comma4listen++) printf ",";
+                            printf XJ_BOLD"%-6s"XJ_RE, strtonum("0x" port_hex) "/" proto "(" untted_port_estd[proto][port_hex] + 0 "/" untted_port_alive[proto][port_hex] + 0 ")";
+                        }
+                        if (port_send[proto]["size"]) {
+                            if (!tag4send++) printf ", send:";
+                            if (comma4send++) printf ",";
+                            printf XJ_BOLD"%s"XJ_RE, proto "(" port_send[proto]["size"] "/" length(port_send[proto]) - 1 ")"
+                        }
+                    }
+                    printf "\n";
+                    if (arg2 == "-v") {
+                        split("established syn_sent syn_recv fin_wait1 fin_wait2 time_wait close close_wait last_ack listen closing new_syn_recv max_states", tcp_state, /[[:space:]]+/);
+                        for (proto in port_send) {
+                            for (addr in port_send[proto]) {
+                                len=length(addr);
+                                if (len == 13 || substr(addr, 1, 24) == "0000000000000000FFFF0000") {
+                                    ipv4="";
+                                    period="";
+                                    tmp_addr=len == 37 ? substr(addr, 25, 13) : addr;
+                                    for (i=7; i>0; i-=2) {
+                                        if (period++) ipv4=(ipv4 ".");
+                                        ipv4=(ipv4 strtonum("0x" substr(tmp_addr, i, 2)));
+                                    }
+                                    for (state in port_send[proto][addr]) {
+                                        printf "name:"XJ_BOLD"%-26s"XJ_RE" proto:"XJ_BOLD"%-5s"XJ_RE" host:"XJ_BOLD"%-32s"XJ_RE" port:"XJ_BOLD"%-6s"XJ_RE" stat:"XJ_BOLD"%-12s"XJ_RE" count:"XJ_BOLD"%s"XJ_RE"\n",
+                                            pre ",", proto ",", ipv4 ",", strtonum("0x" substr(tmp_addr, 10, 4)) ",", tcp_state[strtonum("0x" state)] ",", port_send[proto][addr][state];
+                                    }
+
+                                } else if(len == 37) {
+                                    ipv6="";
+                                    for(i=1; i<=32; i+=8) {
+                                        sub_ip=substr(addr, i, 8);
+                                        for (j=7; j>0; j-=2) {
+                                            ipv6=(ipv6 substr(sub_ip, j, 2));
+                                            if(j==5 || j==1) ipv6=(ipv6 ":");
+                                        }
+                                    };
+                                    sub(/:$/, "", ipv6);
+                                    sub(/(:0000)+:/, "::", ipv6);
+                                    if (!sub(/^0000::/, "::", ipv6)) sub(/^0+/, "0", ipv6);
+                                    gsub(/:0+/, ":0", ipv6);
+                                    for (state in port_send[proto][addr]) {
+                                        printf "name:"XJ_BOLD"%-26s"XJ_RE" proto:"XJ_BOLD"%-5s"XJ_RE" host:"XJ_BOLD"%-40s"XJ_RE" port:"XJ_BOLD"%-6s"XJ_RE" stat:"XJ_BOLD"%-12s"XJ_RE" count:"XJ_BOLD"%s"XJ_RE"\n",
+                                            pre ",", proto ",", tolower(gensub(/:0+([1-9A-Fa-f])/, ":\\1", "g", ipv6)) ",", strtonum("0x" substr(addr, 34, 4)) ",", tcp_state[strtonum("0x" state)] ",", port_send[proto][addr][state];
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }' - /proc/net/{tcp,tcp6,udp,udp6};
+
+                [ "$2" == "-v" ] && {
+                    ps -T -o tid,maj_flt,min_flt,etime,psr,pcpu,wchan:42,comm:15 -p $xj_java_pid | \
+                        awk -v pid=$xj_java_pid -v pre=${PWD##*/}, -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" 'NR > 1 {
+                            sched_file = "/proc/" pid "/task/" $1 "/sched";
+                            while (getline line < sched_file) {
+                                split(line, arg, /[[:space:]]+/);
+                                if (arg[1] == "se.sum_exec_runtime") {}
+                            }
+                            close(sched_file);
+                            io_file = "/proc/" pid "/task/" $1 "/io";
+                            while (getline line < io_file) {
+                                split(line, arg, /[[:space:]]+/);
+                            }
+                            close(io_file);
+
+                            printf "name:"XJ_BOLD"%-26s"XJ_RE" tid:"XJ_BOLD"%-7s"XJ_RE" flt:"XJ_BOLD"%-10s"XJ_RE" time:"XJ_BOLD"%-10s"XJ_RE" core:"XJ_BOLD"%03d"XJ_RE", cpu:"XJ_BOLD"%-8s"XJ_RE" kfun:"XJ_BOLD"%-20s"XJ_RE" exec:",
+                                pre, $1 ",", $2 "+" $3 ",", gensub(/:[0-9]+$/, "", 1, $4) ",", $5, $6 "%,", gensub("-", "(Running)", 1, $7) ","; for(i=8; i<=NF; i++) printf XJ_BOLD"%s ", $i; printf XJ_RE"\n"
+                        }';
+                    __xj_fd_file $xj_java_pid | awk -v pre=${PWD##*/}, -v XJ_BOLD="$XJ_BOLD" -v XJ_RE="$XJ_RE" '/^\// && ! /\.jar$/{
+                            if(!unique[$0]++) printf "name:"XJ_BOLD"%-26s"XJ_RE" file:"XJ_BOLD"%s"XJ_RE"\n", pre, $0
+                        }'
+
+                }
+
+            else
+                printf "name:${XJ_BOLD}%-26s${XJ_RE} inactive (${XJ_RED}dead${XJ_RE}).\n" ${PWD##*/}, >&2;
+                exit 1
+            fi
+
+        ;;
+        info)
+            [ "$2" == "-h" -o "$2" == "--help" ] && { __xj_conf_help; exit 0; }
+            __xj_test_workspace;
+            (
+                XJ_WORKING_DIRECTORY="$PWD";
+                printf '*.CRON_EXPRESSION: %s\n' "$(crontab -l | awk -F \# '/'"${0//\//\\/}"'[[:space:]]/{print $1}')";
+                printf '%s.START_COMMAND: nohup < /dev/null java %s >> %s 2>&1 &\n' "${PWD##*/}" "$(__xj_java_args)" "$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
+                eval `awk -F '[^0-9A-Z_]' 'BEGIN{printf "export"};{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! unique[$i]++) printf " " $i}}' "$0"`;
+                awk -v pre=${PWD##*/} -F '[^0-9A-Z_]' '{for(i=1; i<=NF; i++){if ($i ~ /^XJ_[0-9A-Z_]+/ && ! unique[$i]++) {sub(/^XJ_/, "", $i); system("printf \"%s\\n\" \"" pre "." $i ": $XJ_" $i "\"")}}}' "$0"
+            ) | sort
+
+        ;;
+        --dir|-d|-r)
+            shift;
+            xj_tmp_args=" $* ";
+            [ "$xj_tmp_args$xj_tmp_args$xj_tmp_args" == "${xj_tmp_args/ --dir /}${xj_tmp_args/ -d /}${xj_tmp_args/ -r /}" ] || {
+                printf "[${XJ_B_RED}ERROR${XJ_RE}] recurse option" >&2;
+                __xj_usage_help;
+                exit 1
+            };
+            unset xj_dirs xj_tmp_args;
+            [ -d "$1" ] || set -- "$PWD" "$@";
+            # get all case-esac args
+            xj_case_args=$(awk -F \) '/^[[:space:]]*[A-Za-z|-]+)/{gsub(/\|/, " ", $1); printf " %s ", $1}' "$0");
+            # trim "$@", make sure path exist and not match case-esac
+            while [ -d "$1" -a "${xj_case_args/ $1 /}" == "$xj_case_args" ]; do xj_dirs[${#xj_dirs[@]}]="$1"; shift; done
+            unset xj_case_args xj_act;
+            export TEAMCITY_VERSION=none TERM=dumb;
+            while read xj_jar_dir; do
+                (
+                    cd "`dirname "$xj_jar_dir"`";
+                    unset xj_dirs xj_jar_dir;
+                    __xj_main "$@";
+                )
+                xj_act=true
+            done < <(
+                __xj_recurse() {
+                    for xj_path in "$1"/*.jar "$1"/*/; do
+                        [ -f "$xj_path" ] && `__xj_test_zip_head "$xj_path" 2>/dev/null` && {
+                            printf '%s\n' "$xj_path";
+                            return 0
+                        };
+                        [ -d "$xj_path" -a ${2:-0} -lt $XJ_FIND_JAR_MAX_DEPTH ] && __xj_recurse "${xj_path%/}" $(($2 + 1))
+                    done
+                }
+                for xj_tmp_dir in "${xj_dirs[@]}"; do __xj_recurse "$xj_tmp_dir"; done
+            );
+            [ "$xj_act" ] || \
+                printf "[${XJ_B_RED}ERROR${XJ_RE}] '${XJ_GREEN}%s${XJ_RE}' no jarfile found, find depth is $XJ_FIND_JAR_MAX_DEPTH.\n" $1 >&2;
+            unset xj_dirs xj_jar_dir
+
+        ;;
+        -h|--help)
+            __xj_usage_help;
+        ;;
+        *)
+            printf "[${XJ_B_RED}ERROR${XJ_RE}] invalid option '${XJ_BROWN}$1${XJ_RE}'.\n" >&2;
+            __xj_usage_help;
+            exit 1
+        ;;
+    esac
+
+}
+
+__xj_main "$@"

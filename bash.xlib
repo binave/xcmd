@@ -1,5 +1,5 @@
 #!/bin/bash
-#   Copyright 2017-2019 bin jin
+#   Copyright 2017-2021 bin jin
 #
 #   Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -12,6 +12,38 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
+
+# Redirec stdout and stderr to target files
+# Usage: _redirect [pid] [out_file] [[err_file]]
+_redirect() {
+    which gdb >/dev/null || return 1;
+    [ -s "$2" ] && return 1;
+    if [ "$3" ]; then
+        [ -s "$3" ] && return 1;
+    else
+        set -- "$1" "$2" "/dev/pts/0";
+    fi
+    mkdir -p "${2%/*}" "${3%/*}" || return 1;
+    touch "$2" "$3"
+    gdb -p $1 >/dev/null 2>&1 <<GDB
+set scheduler-locking on
+print close(1)
+print open("$2", 1)
+print close(2)
+print open("$3", 1)
+quit
+GDB
+
+}
+
+_is_zip_file() {
+    [ -s "$1" ] || return 1;
+    local file_head zip_head_bytes;
+    printf -v zip_head_bytes PK\\x03\\x04;
+    read file_head < "$1" 2>/dev/null;
+    [ "$zip_head_bytes" == "${file_head:0:4}" ] || return 1;
+    return 0
+}
 
 # Tag prefix each line, support `date` format
 # Usage: | _prefix "[str|%F %T]"
@@ -205,17 +237,11 @@ _share_do () {
 #    --destroy                    must close it at end
 __variable_map () {
     : ${VARIABLE_MAP_SHARE_DO_POOL:=50};
-    local i key value SHARE_DO_POOL=$VARIABLE_MAP_SHARE_DO_POOL;
+    local idx key value SHARE_DO_POOL=$VARIABLE_MAP_SHARE_DO_POOL;
 
     case $1 in
-        --init)
-            _share_do --init;
-            return 0
-        ;;
-        --destroy)
-            _share_do --destroy;
-            return 0
-        ;;
+        --init) _share_do --init; return 0;;
+        --destroy) _share_do --destroy; return 0;;
         *)
             # have suffix
             if [ "${*%@[0-9]*}" != "$*" ]; then
@@ -228,49 +254,25 @@ __variable_map () {
     esac
 
     # encode key
-    if [[ $2 == *[^0-9A-Za-z_]* ]]; then
-        for ((i=0; i<${#2}; i++)); do
-            if [[ ${2:$i:1} == [0-9A-Za-z_] ]]; then
-                key+="${2:$i:1}";
-            else
-                key+=`printf _%d "'${2:$i:1}"`;
-            fi
-        done
-    else
-        key="$2"
-    fi
+    [[ $2 == *[^0-9A-Za-z_]* ]] && {
+        for ((idx=0; idx<${#2}; idx++)); do key="$key '${2:$idx:1}"; done;
+        printf -v key x%x $key;
+        :
+    } || key="$2";
     value="$3";
 
     case $1 in
-        --put)
-            eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"; VARIABLE_MAP_PREFIX_$key='$value'"
-        ;;
-        --incrby)
-            eval "printf %d \$VARIABLE_MAP_PREFIX_$key; VARIABLE_MAP_PREFIX_$key=\$((VARIABLE_MAP_PREFIX_$key + $value))"
-        ;;
-        --get)
-            eval printf %s \"\$VARIABLE_MAP_PREFIX_$key\"
-        ;;
-        --remove)
-            eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"";
-            unset VARIABLE_MAP_PREFIX_$key
-        ;;
-        --size)
-            # 'grep' will output "\n"
-            printf %d $(set | grep --count '^VARIABLE_MAP_PREFIX_')
-        ;;
-        --clear)
-            # darwin awk not support: --field-separator=
-            unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`
-        ;;
-        --keys|--values|--arr|--clearall)
-            printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2;
-            return 1
-        ;;
-        *)
-            printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2;
-            return 1
-        ;;
+        --put) eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"; VARIABLE_MAP_PREFIX_$key='$value'";;
+        --incrby) eval "printf %s \$VARIABLE_MAP_PREFIX_$key; : \$((VARIABLE_MAP_PREFIX_$key += $value))";;
+        --get) eval printf %s \"\$VARIABLE_MAP_PREFIX_$key\";;
+        --remove) eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\""; unset VARIABLE_MAP_PREFIX_$key;;
+        # 'grep' will output "\n"
+        --size) printf %d $(set | grep -c '^VARIABLE_MAP_PREFIX_');;
+        # darwin awk not support: --field-separator=
+        --clear) unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`;;
+        --keys) printf `set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2) "\\\n"} else {printf $2 "\\\n"}}'`;;
+        --values|--arr|--clearall) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2; return 1;;
+        *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
 }
 

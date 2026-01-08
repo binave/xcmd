@@ -10,13 +10,20 @@
 !*.py
 !*.sh
 !*.vbs
+!*.xlib
 
 # Avoid ignoring default file
+!.dockerignore
+!.editorconfig
+!.gitattributes
 !.gitignore
+!.gitmodules
+!Dockerfile
 !README.md
+!README.zh-CN.md
 !LICENSE
-!?lib
-!3rd
+!x*
 
 # Ignore some directory
 .*/
+*.code-workspace
