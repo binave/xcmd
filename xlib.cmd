@@ -108,10 +108,10 @@ exit /b 0
 :sub\var\-e
     if "%~1"=="" exit /b 22 @REM key is empty
     if "%~2"=="" exit /b 23 @REM value is empty
-    for %%a in (wmic.exe) do if "%%~$path:a"=="" exit /b 24 @REM 'wmic' is not in path
-    @REM for %%a in (setx.exe) do if "%%~$path:a" neq "" >nul setx.exe %~1 %2 /m & exit /b 0
-    if defined %~1 wmic.exe environment where 'name="%~1" and username="<system>"' set VariableValue="%~2"
-    if not defined %~1 wmic.exe environment create name="%~1",username="<system>",VariableValue="%~2"
+    @REM for %%a in (wmic.exe) do if "%%~$path:a"=="" exit /b 24 @REM 'wmic' is not in path
+    for %%a in (setx.exe) do if "%%~$path:a" neq "" >nul setx.exe %~1 %2 /m & exit /b 0
+    @REM if defined %~1 wmic.exe environment where 'name="%~1" and username="<system>"' set VariableValue="%~2"
+    @REM if not defined %~1 wmic.exe environment create name="%~1",username="<system>",VariableValue="%~2"
     exit /b 0
 
 ::: "    --set-errorlevel, -sel  [num]          Set errorlevel variable"
@@ -945,8 +945,8 @@ exit /b 0
     )
     exit /b 66 @REM System version is too old
 
-@REM https://docs.microsoft.com/en-us/previous-versions/tn-archive/cc287874(v=office.12)
-@REM https://docs.microsoft.com/en-us/previous-versions/commerce-server/ee825488(v=cs.20)
+:: https://docs.microsoft.com/en-us/previous-versions/tn-archive/cc287874(v=office.12)
+:: https://docs.microsoft.com/en-us/previous-versions/commerce-server/ee825488(v=cs.20)
 ::: "    --language, -lang  [var_name] [[os_path]]     Get OS current language"
 :sub\oset\--language
 :sub\oset\-lang
@@ -1283,7 +1283,7 @@ exit /b 0
     exit /b 0
 
 @REM TODO
-@REM https://technet.microsoft.com/en-us/security/cc184924.aspx
+:: https://technet.microsoft.com/en-us/security/cc184924.aspx
 :sub\oset\--current-hotfix
 :sub\oset\-ch
     setlocal enabledelayedexpansion
@@ -1291,7 +1291,7 @@ exit /b 0
 
     call :oset\hot\setup %_oset_uuid%
 
-    @REM http://go.microsoft.com/fwlink/?LinkId=76054
+    :: http://go.microsoft.com/fwlink/?LinkId=76054
     call :sub\time\--now _odt_now
 
     if exist %temp%\%_oset_uuid%\wsusscn2.cab (
@@ -1414,7 +1414,7 @@ exit /b 0
     goto :eof
 
 :oset\regedit\--on
-    @REM https://docs.microsoft.com/en-us/windows-hardware/drivers/install/inf-defaultinstall-section
+    :: https://docs.microsoft.com/en-us/windows-hardware/drivers/install/inf-defaultinstall-section
 
     >%temp%\b1444fb0-c076-5356-7ad3-25aa25d4e37a.inf call :sub\txt\--subtxt "%~f0" regon.inf 3000
     @REM pnputil.exe -i -a %temp%\b1444fb0-c076-5356-7ad3-25aa25d4e37a.inf
@@ -3394,8 +3394,8 @@ exit /b 0
     `) do set _editionid=%%a
 
     @REM Search kms key
-    @REM https://technet.microsoft.com/en-us/library/jj612867(v=ws.11).aspx
-    @REM https://docs.microsoft.com/en-us/windows-server/get-started/kmsclientkeys
+    :: https://technet.microsoft.com/en-us/library/jj612867(v=ws.11).aspx
+    :: https://docs.microsoft.com/en-us/windows-server/get-started/kmsclientkeys
 
     set _gvlk=
     for %%k in (
@@ -3628,7 +3628,7 @@ exit /b 0
 :sub\odt\-i
     if not exist "%_odt_source_path%\Office\Data" exit /b 27 @REM source not found
 
-    @REM shift can change %*
+    :: shift can change %*
     if exist "%~1" shift /1
 
     if "%~1" neq "" (
@@ -3754,11 +3754,11 @@ exit /b 0
     if exist %temp%\%~1\odt.exe exit /b 0
     2>nul mkdir %temp%\%~1
 
-    @REM https://www.microsoft.com/download/details.aspx?id=49117
-    @REM https://www.microsoft.com/en-us/download/confirmation.aspx?id=49117
-    @REM https://github.com/MicrosoftDocs/OfficeDocs-DeployOffice/blob/live/DeployOffice/office2019/deploy.md#deploy-languages-for-office-2019
+    :: https://www.microsoft.com/download/details.aspx?id=49117
+    :: https://www.microsoft.com/en-us/download/confirmation.aspx?id=49117
+    :: https://github.com/MicrosoftDocs/OfficeDocs-DeployOffice/blob/live/DeployOffice/office2019/deploy.md#deploy-languages-for-office-2019
 
-    @REM https://docs.microsoft.com/en-us/officeupdates/odt-release-history
+    :: https://docs.microsoft.com/en-us/officeupdates/odt-release-history
     @REM Version 16.0.6126.6351
     @REM Version 16.0.6227.6350
     @REM Version 16.0.6508.6350
@@ -3839,96 +3839,99 @@ exit /b 0
     erase %temp%\%~1\officedeploymenttool16.exe %temp%\%~1\*.xml
     exit /b 0
 
-::: "Visual Studio Installer" "" "usage: %~n0 vsi [branch] [option] [args]" "    branch:" "        enterprise" "        professional" "        community" "        core         (build tools without IDE)" "" "    option:"
+::: "Visual Studio Installer" "" "usage: %~n0 vsi [branch] [[version]] [option] [[args]]" "    branch:" "        enterprise" "        professional" "        community" "        core         (build tools without IDE)" "" "    option:"
 :xlib\vsi
     title vsi
     if "%~1"=="" call :this\annotation %0 & goto :eof
     if "%~2"=="" exit /b 2
     setlocal
-    set _major_version=16
     call :sub\vsi\%*
-
     if errorlevel 1 goto :eof
-
-    if exist "%ProgramData%\Microsoft\VisualStudio\Packages" rmdir /s /q "%ProgramData%\Microsoft\VisualStudio\Packages"
-
-    @REM remove other parttition 'ProgramData' directory
-    if "%~2" neq "" if exist %~d2\ProgramData\Microsoft\VisualStudio\Packages rmdir /s /q %~d2\ProgramData\Microsoft\VisualStudio\Packages
-    call :sub\dir\--clean %~d2\ProgramData
-    call :sub\dir\--isfree %~d2\ProgramData && rmdir /s /q %~d2\ProgramData
     endlocal
     exit /b 0
 
-@REM https://learn.microsoft.com/zh-cn/visualstudio/install/workload-component-id-vs-build-tools
+:: https://learn.microsoft.com/zh-cn/visualstudio/install/workload-component-id-vs-build-tools
 :sub\vsi\enterprise
 :sub\vsi\professional
 :sub\vsi\community
 :sub\vsi\core
+    setlocal
     set _install_args=--includeRecommended
     set _branch=
     for %%a in (%0) do set _branch=%%~na
-    :: vs_buildtools:
-    @REM set _install_args=^
-    @REM     --add Microsoft.VisualStudio.Component.Static.Analysis.Tools ^
-    @REM     --add Microsoft.VisualStudio.Component.VC.CoreBuildTools ^
-    @REM     --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest ^
-    @REM     --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 ^
-    @REM     --add Microsoft.VisualStudio.Component.Windows10SDK ^
-    @REM     --add Microsoft.VisualStudio.Component.TestTools.BuildTools ^
-    @REM     --add Microsoft.VisualStudio.Component.Windows10SDK.17134 ^
-    @REM     --add Microsoft.VisualStudio.Component.WinXP
-    if "%_branch%"=="core" set "_branch=buildtools"& set _install_args=--add Microsoft.VisualStudio.Workload.VCTools;includeRecommended
-    call :sub\vsi\%*
+
+    set _major_version=
+    for %%a in (
+        7.2003 8.2005 9.2008 10.2010 11.2012 12.2013 14.2015
+        15.2017 16.2019 17.2022 18.2026
+    ) do if ".%~1"=="%%~xa" set _major_version=%%~na
+
+    if defined _major_version (
+        if %_major_version%0 lss 150 exit /b 11 @REM visualstudio version is too old
+        shift /1
+    ) else set _major_version=17
+
+    set _win_sdk=10SDK.19041
+    if %_major_version%==18 set _win_sdk=11SDK.26100
+
+    if "%_branch%"=="core" set "_branch=buildtools"& set _install_args=--add Microsoft.VisualStudio.Workload.VCTools;includeRecommended ^
+--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 ^
+--add Microsoft.VisualStudio.Component.Windows%_win_sdk%
+    set _win_sdk=
+
+    call :sub\vsi\%~1 %2 %3
     goto :eof
 
-@REM https://docs.microsoft.com/zh-cn/visualstudio/install/workload-component-id-vs-build-tools#visual-c-build-tools
-@REM https://docs.microsoft.com/zh-cn/visualstudio/install/use-command-line-parameters-to-install-visual-studio?view=vs-2022
+:: https://docs.microsoft.com/zh-cn/visualstudio/install/workload-component-id-vs-build-tools#visual-c-build-tools
+:: https://docs.microsoft.com/zh-cn/visualstudio/install/use-command-line-parameters-to-install-visual-studio?view=vs-2022
 ::: "        --deploy,  -d [directory_path]      Deployment visual studio build tools data"
 :sub\vsi\--deploy
 :sub\vsi\-d
-    if "%~1"=="" exit /b 12 @REM args is empty
+    if "%~1"=="" exit /b 13 @REM args is empty
     2>nul mkdir "%~1"
-    call :sub\oset\--language _vsi_lang || exit /b 13 @REM can not get current language
-    call :vsi\ext\setup e64d79b4-0219-aea6-18ce-2fe10ebd5f0d %_branch% || exit /b 14 @REM vs_install download error
+    call :sub\oset\--language _vsi_lang || exit /b 14 @REM can not get current language
+    call :vsi\ext\setup e64d79b4-0219-aea6-18ce-2fe10ebd5f0d %_branch% %_major_version% || exit /b 15 @REM vs_install download error
 
-    @REM error args: --allWorkloads
-    start /wait vs_%_branch%.exe --wait --lang %_vsi_lang% --layout "%~1" %_install_args% || exit /b 15 @REM vs_buildtools error
+    start /wait vs_%_branch%.exe --wait --lang %_vsi_lang% --layout "%~1" %_install_args% --quiet --norestart || exit /b 16 @REM vs_buildtools error
     if not errorlevel 1 echo can use command '%~1\vs_setup.exe --passive --wait --norestart --nocache --noWeb %_install_args%'
     goto :eof
 
-@REM @REM Debuggable Package Manager
-@REM powershell.exe -NoExit -Command "& { Import-Module Appx; Import-Module .\AppxDebug.dll; Show-AppxDebug}"
-@REM %comspec% /k "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat"                @REM Developer Command Prompt for VS 2017
-@REM %comspec% /k "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars32.bat"           @REM x86 Native Tools Command Prompt for VS 2017
-@REM %comspec% /k "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvars64.bat"           @REM x64 Native Tools Command Prompt for VS 2017
-@REM %comspec% /k "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsx86_amd64.bat"    @REM x86_x64 Cross Tools Command Prompt for VS 2017
-@REM %comspec% /k "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsamd64_x86.bat"    @REM x64_x86 Cross Tools Command Prompt for VS 2017
-@REM https://docs.microsoft.com/zh-cn/visualstudio/install/build-tools-container
+:: @REM Debuggable Package Manager
+:: %comspec% /k "%VSINSTALLDIR%\Common7\Tools\VsDevCmd.bat"          @REM Developer Command Prompt
+:: %comspec% /k "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsall.bat" %*
+:: https://docs.microsoft.com/zh-cn/visualstudio/install/build-tools-container
 ::: "        --install, -i [[directory_path]]    Install visual studio build tools online" "                                            when script in deploy path, will install offline"
 :sub\vsi\--install
 :sub\vsi\-i
     if "%~1" neq "" (
         if "%~d1\"=="%~dp1" exit /b 27 @REM can not install at root path
         call :sub\dir\--isfree "%~1" || exit /b 28 @REM target path not found
-        2>nul mkdir "%~dp1WindowsKits" "%~1"
-        mklink /j "%ProgramFiles(x86)%\Windows Kits" "%~dp1WindowsKits" || exit /b 26 @REM create soft link error
+        mklink /j "%ProgramFiles(x86)%\Windows Kits" "%~dp1WinSDK" || exit /b 26 @REM create soft link "%ProgramFiles(x86)%\Windows Kits" error
+        2>nul mkdir "%~dp1WinSDK" "%~1"
         set _install_args=--installPath "%~1" %_install_args%
     )
 
-    call :vsi\ext\setup e64d79b4-0219-aea6-18ce-2fe10ebd5f0d %_branch% || exit /b 24 @REM vs_install download error
-    start /wait vs_%_branch%.exe --passive --wait --norestart --nocache %_install_args% || exit /b 25 @REM vs_buildtools error
+    call :vsi\ext\setup e64d79b4-0219-aea6-18ce-2fe10ebd5f0d %_branch% %_major_version% || exit /b 24 @REM vs_install download error
+    start /wait vs_%_branch%.exe --wait %_install_args% || exit /b 25 @REM vs_buildtools error
     goto :eof
 
-@REM https://aka.ms/vs/17/release/vs_buildtools.exe
-@REM https://aka.ms/vs/16/release/vs_enterprise.exe
-@REM https://aka.ms/vs/16/release/vs_professional.exe
-@REM https://aka.ms/vs/16/release/vs_community.exe
+:: https://aka.ms/vs/17/release/vs_buildtools.exe
+:: https://aka.ms/vs/16/release/vs_enterprise.exe
+:: https://aka.ms/vs/15/release/vs_professional.exe
+:: https://aka.ms/vs/17/release/vs_community.exe
+:: https://aka.ms/vs/stable/vs_buildtools.exe
+:: https://aka.ms/vs/stable/vs_enterprise.exe
+:: https://aka.ms/vs/stable/vs_professional.exe
+:: https://aka.ms/vs/stable/vs_community.exe
 :vsi\ext\setup
-    for %%a in (vs_%~2.exe) do if "%%~$path:a" neq "" exit /b 0
-    set PATH=%temp%\%~1;%PATH%
-    if exist %temp%\%~1\vs_%~2.exe exit /b 0
-    2>nul mkdir %temp%\%~1
-    call :xlib\download https://aka.ms/vs/17/release/vs_%~2.exe %temp%\%~1\vs_%~2.exe || exit /b 1
+    set PATH=%temp%\%~1%~3;%PATH%
+    setlocal
+    if exist %temp%\%~1%~3\vs_%~2.exe exit /b 0
+    2>nul mkdir %temp%\%~1%~3
+    set _url=https://aka.ms/vs/%~3/release/vs_%~2.exe
+    if "%~3"=="18" set _url=https://aka.ms/vs/stable/vs_%~2.exe
+    call :xlib\download %_url% %temp%\%~1%~3\vs_%~2.exe || exit /b 1
+    endlocal
     exit /b 0
 
 :::::::::::
@@ -4077,7 +4080,7 @@ exit /b 0
     endlocal
     exit /b 0
 
-@REM for :sub\str\--2col-left and :sub\txt\--all-col-left and
+:: for :sub\str\--2col-left and :sub\txt\--all-col-left and
 :strModulo
     set /a _acl+=1
     set _str=%_str:~15%
@@ -4158,7 +4161,7 @@ exit /b 0
     ) else set %~2=%_0%
     goto :eof
 
-@REM Longest common subsequence
+:: Longest common subsequence
 ::: "    --lcs                 [str1] [str2] [[var_name]]     Longest common subsequence"
 :sub\str\--lcs
     if "%~2"=="" exit /b 95 @REM string is empty
