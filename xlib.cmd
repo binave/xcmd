@@ -3371,13 +3371,13 @@ exit /b 0
     call :sub\kms\--odt %*
     exit /b 0
 
-@REM for Operating System, [WARN] must call from ':xlib\kms'
+:: for Operating System, [WARN] must call from ':xlib\kms'
 ::: "    --os,  -s [[host[:port]]]     Active operating system"
 :sub\kms\--os
 :sub\kms\-s
     if not defined _host exit /b 23 @REM Need ip or host
 
-    @REM Get this OS version
+    :: Get this OS version
     set _verm10=
     call :oset\this_version_multiply_10 _verm10
     call :regedit\on
@@ -3387,13 +3387,13 @@ exit /b 0
         reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v CurrentBuild
     `) do set _currentbuild=%%a
 
-    @REM Get this OS Edition ID
+    :: Get this OS Edition ID
     set _editionid=
     for /f "usebackq tokens=3" %%a in (`
         reg.exe query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion" /v EditionID
     `) do set _editionid=%%a
 
-    @REM Search kms key
+    :: Search kms key
     :: https://technet.microsoft.com/en-us/library/jj612867(v=ws.11).aspx
     :: https://docs.microsoft.com/en-us/windows-server/get-started/kmsclientkeys
 
@@ -3478,13 +3478,13 @@ exit /b 0
         set _gvlk=%%b
     ) else if /i "%_editionid%_%_verm10%_%_currentbuild%"=="%%a" set _gvlk=%%b
 
-    @REM If not find key
+    :: If not find key
     if not defined _gvlk (
         call :regedit\off
         exit /b 24 @REM OS not support
     )
 
-    @REM Active
+    :: Active
     for %%a in (
                                          ::?"active" ::?"display expires time" ::?"rm key"
         "/ipk %_gvlk%"  "/skms %_host%"      /ato        /xpr                      /ckms
@@ -3493,7 +3493,7 @@ exit /b 0
 
     exit /b 0
 
-@REM for Office Deployment Tool only, [WARN] must call from ':xlib\kms'
+:: for Office Deployment Tool only, [WARN] must call from ':xlib\kms'
 ::: "    --odt, -o [[host[:port]]]     Active office, which install by Office Deployment Tool" "    e.g." "        %~n0 kms --os 192.168.1.1"
 :sub\kms\--odt
 :sub\kms\-o
@@ -3523,13 +3523,17 @@ exit /b 0
         exit /b 35 @REM get office version failed
     )
 
-    @REM Office 2010: http://technet.microsoft.com/en-us/library/ee624355(office.14).aspx
+    :: Office 2010: http://technet.microsoft.com/en-us/library/ee624355(office.14).aspx
     for /f "usebackq tokens=2*" %%a in (`
         reg.exe query HKLM\Software\Microsoft\Office\ClickToRun\Configuration /v ProductReleaseIds
     `) do if "%%~b" neq "" for %%c in (
         %%~b
     ) do for %%k in (
         ::?https://docs.microsoft.com/en-us/DeployOffice/vlactivation/gvlks
+        16_ProPlus2024Volume@XJ2XN-FW8RK-P4HMP-DKDBV-GCVGB
+        16_VisioPro2024Volume@B7TN8-FJ8V3-7QYCP-HQPMV-YY89G
+        16_ProjectPro2024Volume@FQQ23-N4YCY-73HQ3-FM9WC-76HF4
+
         16_ProPlus2021Volume@FXYTK-NJJ8C-GB6DW-3DYQT-6F7TH
         16_VisioPro2021Volume@KNH8D-FGHT4-T8RK3-CTDYJ-K2HT4
         16_ProjectPro2021Volume@FTNWT-C6WBT-8HMGF-K9PRX-QV9H8
@@ -3557,7 +3561,7 @@ exit /b 0
         exit /b 36 @REM office not support
     )
 
-    @REM Active
+    :: Active
     for /f "usebackq tokens=1* delims==" %%a in (`
         2^>nul set _gvlk\
     `) do call :kms\dividing_line %%b && for %%c in (
@@ -3577,7 +3581,7 @@ exit /b 0
     echo ---------------------------------------
     exit /b 0
 
-::: "Office Deployment Tool, Use '-h' for a description of the options" "" "usage: %~n0 odt [option] [[2016/2019/2021]]"
+::: "Office Deployment Tool, Use '-h' for a description of the options" "" "usage: %~n0 odt [option] ... [[2016/2019/2021/2024]]" ""
 :xlib\odt
     title odt
     if "%~1"=="" call :this\annotation %0 & goto :eof
@@ -3595,16 +3599,14 @@ exit /b 0
 
     for %%a in (
         %*
-    ) do (
-        if "%%a"=="2016" set /a _odt_year=2016
-        if "%%a"=="2019" set /a _odt_year=2019
-        if "%%a"=="2021" set /a _odt_year=2019
-    )
+    ) do for %%b in (
+        2016 2019 2021 2024
+    ) do if "%%a"=="%%b" set /a _odt_year=%%a
     if not defined _odt_year set _odt_year=2021
 
-    set _odt_channel=PerpetualVL2019
-    if %_odt_year% gtr 2019 set _odt_channel=PerpetualVL2021
-    if %_odt_year% lss 2019 set _odt_channel=Broad
+    if %_odt_year% lss 2019 (
+        set _odt_channel=Broad
+    ) else set _odt_channel=PerpetualVL%_odt_year%
 
     call :sub\odt\%*
     endlocal
@@ -3614,7 +3616,7 @@ exit /b 0
 :sub\odt\--deploy
 :sub\odt\-d
     3>nul call :odt\pro\full
-    >%temp%\odt_download.xml call :sub\txt\--subtxt "%~f0" odt.xml 3000
+    >%temp%\odt_download.xml call :sub\txt\--subtxt "%~f0" odt.xml 3700
 
     title Deployed to '%_odt_source_path%'
     >&3 echo Deployed to '%_odt_source_path%'
@@ -3623,7 +3625,12 @@ exit /b 0
     erase %temp%\odt_download.xml
     goto :eof
 
-::: "    --install, -i  [[path]] [[names]]    Install office by names, will remove previous installation" "                                         default: 'base'" "" "      names:" "          base full" "          word excel powerpoint" "          access onenote outlook" "          project visio publisher teams" "" "      base:" "          word excel visio" "" "      full:" "          word excel powerpoint project visio"
+::: "    --add,     -a  [[path]] [[names]]    Install office by names, default: 'base'"
+:sub\odt\--add
+:sub\odt\-a
+    set _odt_remove=odt.xml
+
+::: "    --install, -i  [[path]] [[names]]    Install office by names, [WARNING^^^!] will remove previous" "                                         installation, default: 'base'" "" "      names:" "          base full" "          word excel powerpoint" "          access onenote outlook" "          project visio publisher teams" "" "      base:" "          word excel visio" "" "      full:" "          word excel powerpoint project visio"
 :sub\odt\--install
 :sub\odt\-i
     if not exist "%_odt_source_path%\Office\Data" exit /b 27 @REM source not found
@@ -3643,7 +3650,7 @@ exit /b 0
 
     if errorlevel 4 exit /b 24 @REM must set office product ids
 
-    >%temp%\odt_install.xml call :sub\txt\--subtxt "%~f0" odt.xml 3000
+    >%temp%\odt_install.xml call :sub\txt\--subtxt "%~f0" odt.xml 3700
 
     title Installing from %_odt_source_path%\Office
     >&3 echo Installing...
@@ -3662,11 +3669,11 @@ exit /b 0
 
     >&3 echo install complete. will try to activate
 
-    @REM can not call '\private\' function.
+    :: can not call '\private\' function.
     call :xlib\kms --odt
     exit /b 0
 
-@REM convert to volume license, for 2016 or 2013
+:: convert to volume license, for 2016 or 2013
 :odt\cvlic
     for /r %1 %%a in (
         ProPlusVL_KMS*.xrm-ms
@@ -3687,19 +3694,20 @@ exit /b 0
     goto :eof
 
 :odt\install_args
-    @REM clear variable
+    :: clear variable
     for /f "usebackq delims==" %%a in (`
         2^>nul set _odt__
     `) do set %%a=
-    @REM Comment office professionalretail
+    :: Comment office professionalretail
     set _odt_pro_2016=odt.xml
     set _odt_pro_2019=odt.xml
     set _odt_pro_2021=odt.xml
+    set _odt_pro_2024=odt.xml
 
-    @REM Groove: OneDriveforBusiness
-    @REM Lync: SkypeforBusiness
+    :: Groove: OneDriveforBusiness
+    :: Lync: SkypeforBusiness
 
-    @REM ExcludeApp
+    :: ExcludeApp
     for %%a in (
         word excel powerpoint onenote onedrive skype access outlook publisher teams
     ) do set _odt__%%a_%_odt_year%=odt.xml
@@ -3709,7 +3717,7 @@ exit /b 0
         %*
     ) do if "%%~a"=="%%~b" set "_odt__%%a_%_odt_year%=" & set _odt_pro_%_odt_year%=
 
-    @REM must install some thing
+    :: must install some thing
     >nul 2>&1 set _odt__ || exit /b 25
 
     >&3 set /p=will install office %_odt_year%: <nul
@@ -3717,7 +3725,7 @@ exit /b 0
         word excel powerpoint onenote onedrive skype access outlook publisher teams
     ) do if not defined _odt__%%a_%_odt_year% >&3 set /p='%%a' <nul
 
-    @REM Product
+    :: Product
     for %%a in (%*) do for %%b in (
         project visio
     ) do if "%%~a"=="%%~b" set _odt__%%a_%_odt_year%=odt.xml
@@ -3747,7 +3755,7 @@ exit /b 0
     popd
     goto :eof
 
-@REM download and set in path
+:: download and set in path
 :odt\ext\setup
     for %%a in (odt.exe) do if "%%~$path:a" neq "" exit /b 0
     set PATH=%temp%\%~1;%PATH%
@@ -3759,78 +3767,85 @@ exit /b 0
     :: https://github.com/MicrosoftDocs/OfficeDocs-DeployOffice/blob/live/DeployOffice/office2019/deploy.md#deploy-languages-for-office-2019
 
     :: https://docs.microsoft.com/en-us/officeupdates/odt-release-history
-    @REM Version 16.0.6126.6351
-    @REM Version 16.0.6227.6350
-    @REM Version 16.0.6508.6350
-    @REM Version 16.0.6508.6351
-    @REM Version 16.0.6612.6353
-    @REM Version 16.0.6831.5775
-    @REM Version 16.0.7118.5775
-    @REM Version 16.0.7213.5776
-    @REM Version 16.0.7407.3600
-    @REM Version 16.0.7614.3602
-    @REM Version 16.0.8008.3601
-    @REM Version 16.0.8311.3600
-    @REM Version 16.0.8529.3600
-    @REM Version 16.0.9119.3601
-    @REM Version 16.0.9326.3600
-    @REM Version 16.0.10306.33602
-    @REM Version 16.0.10321.33602
-    @REM Version 16.0.10810.33603
-    @REM Version 16.0.11023.33600
-    @REM Version 16.0.11107.33602
-    @REM Version 16.0.11306.33602
-    @REM Version 16.0.11509.33604
-    @REM Version 16.0.11615.33602
-    @REM Version 16.0.11617.33601
-    @REM Version 16.0.11901.20022
-    @REM Version 16.0.12130.20272
-    @REM Version 16.0.12325.20288
-    @REM Version 16.0.12624.20320
-    @REM Version 16.0.12827.20268
-    @REM Version 16.0.13231.20368
-    @REM Version 16.0.13328.20292
-    @REM Version 16.0.13328.20356
-    @REM Version 16.0.13328.20420
-    @REM Version 16.0.13426.20308
-    @REM Version 16.0.13426.20370
-    @REM Version 16.0.13530.20376
-    @REM Version 16.0.13628.20274
-    @REM Version 16.0.13628.20476
-    @REM Version 16.0.13801.20360
-    @REM Version 16.0.13901.20336
-    @REM Version 16.0.13929.20296
-    @REM Version 16.0.14026.20254
-    @REM Version 16.0.14026.20306
-    @REM Version 16.0.14131.20278
-    @REM Version 16.0.14326.20404
-    @REM Version 16.0.14527.20178
-    @REM Version 16.0.14729.20228
-    @REM Version 16.0.14931.20120
-    @REM Version 16.0.15028.20160
-    @REM Version 16.0.15028.20242
-    @REM Version 16.0.15128.20224
-    @REM Version 16.0.15225.20204
-    @REM Version 16.0.15330.20230
-    @REM Version 16.0.15427.20220
-    @REM Version 16.0.15601.20148
-    @REM Version 16.0.15629.20208
-    @REM Version 16.0.15726.20202
-    @REM Version 16.0.15928.20216
-    @REM Version 16.0.16026.20170
+    :: Version 16.0.6126.6351
+    :: Version 16.0.6227.6350
+    :: Version 16.0.6508.6350
+    :: Version 16.0.6508.6351
+    :: Version 16.0.6612.6353
+    :: Version 16.0.6831.5775
+    :: Version 16.0.7118.5775
+    :: Version 16.0.7213.5776
+    :: Version 16.0.7407.3600
+    :: Version 16.0.7614.3602
+    :: Version 16.0.8008.3601
+    :: Version 16.0.8311.3600
+    :: Version 16.0.8529.3600
+    :: Version 16.0.9119.3601
+    :: Version 16.0.9326.3600
+    :: Version 16.0.10306.33602
+    :: Version 16.0.10321.33602
+    :: Version 16.0.10810.33603
+    :: Version 16.0.11023.33600
+    :: Version 16.0.11107.33602
+    :: Version 16.0.11306.33602
+    :: Version 16.0.11509.33604
+    :: Version 16.0.11615.33602
+    :: Version 16.0.11617.33601
+    :: Version 16.0.11901.20022
+    :: Version 16.0.12130.20272
+    :: Version 16.0.12325.20288
+    :: Version 16.0.12624.20320
+    :: Version 16.0.12827.20268
+    :: Version 16.0.13231.20368
+    :: Version 16.0.13328.20292
+    :: Version 16.0.13328.20356
+    :: Version 16.0.13328.20420
+    :: Version 16.0.13426.20308
+    :: Version 16.0.13426.20370
+    :: Version 16.0.13530.20376
+    :: Version 16.0.13628.20274
+    :: Version 16.0.13628.20476
+    :: Version 16.0.13801.20360
+    :: Version 16.0.13901.20336
+    :: Version 16.0.13929.20296
+    :: Version 16.0.14026.20254
+    :: Version 16.0.14026.20306
+    :: Version 16.0.14131.20278
+    :: Version 16.0.14326.20404
+    :: Version 16.0.14527.20178
+    :: Version 16.0.14729.20228
+    :: Version 16.0.14931.20120
+    :: Version 16.0.15028.20160
+    :: Version 16.0.15028.20242
+    :: Version 16.0.15128.20224
+    :: Version 16.0.15225.20204
+    :: Version 16.0.15330.20230
+    :: Version 16.0.15427.20220
+    :: Version 16.0.15601.20148
+    :: Version 16.0.15629.20208
+    :: Version 16.0.15726.20202
+    :: Version 16.0.15928.20216
+    :: Version 16.0.16026.20170
 
-    @REM Version 16.0.16130.20186
-    @REM Version 16.0.16227.20244
-    @REM Version 16.0.16327.20214
-    @REM Version 16.0.16501.20140
-    @REM Version 16.0.16529.20164
-    @REM Version 16.0.16626.20148
+    :: Version 16.0.16130.20186
+    :: Version 16.0.16227.20244
+    :: Version 16.0.16327.20214
+    :: Version 16.0.16501.20140
+    :: Version 16.0.16529.20164
+    :: Version 16.0.16626.20148
 
-    @REM Version 16.0.18925.20138
+    :: Version 16.0.18925.20138
+    :: Version 16.0.19029.20136
+    :: Version 16.0.19231.20072
+    :: Version 16.0.19231.20156
+    :: Version 16.0.19029.20278
+    :: Version 16.0.19328.20210
+    :: Version 16.0.19426.20170
+    :: Version 16.0.19628.20046
 
     call :xlib\download ^
-            https://download.microsoft.com/download/6c1eeb25-cf8b-41d9-8d0d-cc1dbc032140/officedeploymenttool_18925-20138.exe ^
-            %temp%\%~1\officedeploymenttool16.exe || exit /b 1
+        https://download.microsoft.com/download/6c1eeb25-cf8b-41d9-8d0d-cc1dbc032140/officedeploymenttool_19628-20046.exe ^
+        %temp%\%~1\officedeploymenttool16.exe || exit /b 1
 
     %temp%\%~1\officedeploymenttool16.exe /extract:%temp%\%~1 /quiet || exit /b 1
     rename %temp%\%~1\setup.exe odt.exe || exit /b 1
@@ -4724,31 +4739,39 @@ exit /b 0
 
 
 @REM for :xlib\odt
-                    ::odt.xml:<^!-- Do not use this sample to install Office 365 products.
+                    ::odt.xml:<^!-- Office 365 client configuration file sample. To be used for Office 365 ProPlus apps,
+                    ::odt.xml:     Office 365 Business apps, Project Pro for Office 365 and Visio Pro for Office 365.
                     ::odt.xml:
                     ::odt.xml:     For detailed information regarding configuration options visit: http://aka.ms/ODT.
                     ::odt.xml:     To use the configuration file be sure to remove the comments
                     ::odt.xml:
-                    ::odt.xml:     This configuration file will remove all other Click-to-Run products in order to avoid
-                    ::odt.xml:     product conflicts and ensure successful setup.
-                    ::odt.xml: -->
+                    ::odt.xml:     The following sample allows you to download and install the 64 bit version of the Office 365 ProPlus apps
+                    ::odt.xml:     and Visio Pro for Office 365 directly from the Office CDN using the Current Channel
+                    ::odt.xml:     settings  -->
                     ::odt.xml:
                     ::odt.xml:<Configuration>
                     ::odt.xml:
+              ::!_odt_remove!:    <^!--
                     ::odt.xml:    <Remove All="TRUE">
                     ::odt.xml:        <Product ID="Access2019Retail" />
                     ::odt.xml:        <Product ID="Access2019Volume" />
                     ::odt.xml:        <Product ID="Access2021Retail" />
                     ::odt.xml:        <Product ID="Access2021Volume" />
+                    ::odt.xml:        <Product ID="Access2024Retail" />
+                    ::odt.xml:        <Product ID="Access2024Volume" />
                     ::odt.xml:        <Product ID="AccessRetail" />
                     ::odt.xml:        <Product ID="AccessRuntimeRetail" />
                     ::odt.xml:        <Product ID="Excel2019Retail" />
                     ::odt.xml:        <Product ID="Excel2019Volume" />
                     ::odt.xml:        <Product ID="Excel2021Retail" />
                     ::odt.xml:        <Product ID="Excel2021Volume" />
+                    ::odt.xml:        <Product ID="Excel2024Retail" />
+                    ::odt.xml:        <Product ID="Excel2024Volume" />
                     ::odt.xml:        <Product ID="ExcelRetail" />
+                    ::odt.xml:        <Product ID="Home2024Retail" />
                     ::odt.xml:        <Product ID="HomeBusiness2019Retail" />
                     ::odt.xml:        <Product ID="HomeBusiness2021Retail" />
+                    ::odt.xml:        <Product ID="HomeBusiness2024Retail" />
                     ::odt.xml:        <Product ID="HomeBusinessRetail" />
                     ::odt.xml:        <Product ID="HomeStudent2019Retail" />
                     ::odt.xml:        <Product ID="HomeStudent2021Retail" />
@@ -4756,13 +4779,17 @@ exit /b 0
                     ::odt.xml:        <Product ID="LanguagePack" />
                     ::odt.xml:        <Product ID="LyncEntryRetail" />
                     ::odt.xml:        <Product ID="LyncRetail" />
+                    ::odt.xml:        <Product ID="O365HomePremRetail" />
                     ::odt.xml:        <Product ID="OneNote2021Volume" />
+                    ::odt.xml:        <Product ID="OneNote2024Volume" />
                     ::odt.xml:        <Product ID="OneNoteFreeRetail" />
                     ::odt.xml:        <Product ID="OneNoteRetail" />
                     ::odt.xml:        <Product ID="Outlook2019Retail" />
                     ::odt.xml:        <Product ID="Outlook2019Volume" />
                     ::odt.xml:        <Product ID="Outlook2021Retail" />
                     ::odt.xml:        <Product ID="Outlook2021Volume" />
+                    ::odt.xml:        <Product ID="Outlook2024Retail" />
+                    ::odt.xml:        <Product ID="Outlook2024Volume" />
                     ::odt.xml:        <Product ID="OutlookRetail" />
                     ::odt.xml:        <Product ID="Personal2019Retail" />
                     ::odt.xml:        <Product ID="Personal2021Retail" />
@@ -4770,26 +4797,35 @@ exit /b 0
                     ::odt.xml:        <Product ID="PowerPoint2019Volume" />
                     ::odt.xml:        <Product ID="PowerPoint2021Retail" />
                     ::odt.xml:        <Product ID="PowerPoint2021Volume" />
+                    ::odt.xml:        <Product ID="PowerPoint2024Retail" />
+                    ::odt.xml:        <Product ID="PowerPoint2024Volume" />
                     ::odt.xml:        <Product ID="PowerPointRetail" />
                     ::odt.xml:        <Product ID="Professional2019Retail" />
                     ::odt.xml:        <Product ID="Professional2021Retail" />
+                    ::odt.xml:        <Product ID="Professional2024Retail" />
                     ::odt.xml:        <Product ID="ProfessionalRetail" />
                     ::odt.xml:        <Product ID="ProjectPro2019Retail" />
                     ::odt.xml:        <Product ID="ProjectPro2019Volume" />
                     ::odt.xml:        <Product ID="ProjectPro2021Retail" />
                     ::odt.xml:        <Product ID="ProjectPro2021Volume" />
+                    ::odt.xml:        <Product ID="ProjectPro2024Retail" />
+                    ::odt.xml:        <Product ID="ProjectPro2024Volume" />
                     ::odt.xml:        <Product ID="ProjectProRetail" />
                     ::odt.xml:        <Product ID="ProjectProXVolume" />
                     ::odt.xml:        <Product ID="ProjectStd2019Retail" />
                     ::odt.xml:        <Product ID="ProjectStd2019Volume" />
                     ::odt.xml:        <Product ID="ProjectStd2021Retail" />
                     ::odt.xml:        <Product ID="ProjectStd2021Volume" />
+                    ::odt.xml:        <Product ID="ProjectStd2024Retail" />
+                    ::odt.xml:        <Product ID="ProjectStd2024Volume" />
                     ::odt.xml:        <Product ID="ProjectStdRetail" />
                     ::odt.xml:        <Product ID="ProjectStdXVolume" />
                     ::odt.xml:        <Product ID="ProPlus2019Retail" />
                     ::odt.xml:        <Product ID="ProPlus2019Volume" />
                     ::odt.xml:        <Product ID="ProPlus2021Retail" />
                     ::odt.xml:        <Product ID="ProPlus2021Volume" />
+                    ::odt.xml:        <Product ID="ProPlus2024Retail" />
+                    ::odt.xml:        <Product ID="ProPlus2024Volume" />
                     ::odt.xml:        <Product ID="ProPlusSPLA2021Volume" />
                     ::odt.xml:        <Product ID="Publisher2019Retail" />
                     ::odt.xml:        <Product ID="Publisher2019Volume" />
@@ -4799,35 +4835,72 @@ exit /b 0
                     ::odt.xml:        <Product ID="SkypeforBusiness2019Retail" />
                     ::odt.xml:        <Product ID="SkypeforBusiness2019Volume" />
                     ::odt.xml:        <Product ID="SkypeforBusiness2021Volume" />
+                    ::odt.xml:        <Product ID="SkypeforBusiness2024Volume" />
                     ::odt.xml:        <Product ID="SkypeforBusinessEntry2019Retail" />
                     ::odt.xml:        <Product ID="SkypeforBusinessEntryRetail" />
                     ::odt.xml:        <Product ID="SkypeforBusinessRetail" />
                     ::odt.xml:        <Product ID="Standard2019Volume" />
                     ::odt.xml:        <Product ID="Standard2021Volume" />
+                    ::odt.xml:        <Product ID="Standard2024Volume" />
                     ::odt.xml:        <Product ID="StandardSPLA2021Volume" />
                     ::odt.xml:        <Product ID="VisioPro2019Retail" />
                     ::odt.xml:        <Product ID="VisioPro2019Volume" />
                     ::odt.xml:        <Product ID="VisioPro2021Retail" />
                     ::odt.xml:        <Product ID="VisioPro2021Volume" />
+                    ::odt.xml:        <Product ID="VisioPro2024Retail" />
+                    ::odt.xml:        <Product ID="VisioPro2024Volume" />
                     ::odt.xml:        <Product ID="VisioProRetail" />
                     ::odt.xml:        <Product ID="VisioProXVolume" />
                     ::odt.xml:        <Product ID="VisioStd2019Retail" />
                     ::odt.xml:        <Product ID="VisioStd2019Volume" />
                     ::odt.xml:        <Product ID="VisioStd2021Retail" />
                     ::odt.xml:        <Product ID="VisioStd2021Volume" />
+                    ::odt.xml:        <Product ID="VisioStd2024Retail" />
+                    ::odt.xml:        <Product ID="VisioStd2024Volume" />
                     ::odt.xml:        <Product ID="VisioStdRetail" />
                     ::odt.xml:        <Product ID="VisioStdXVolume" />
                     ::odt.xml:        <Product ID="Word2019Retail" />
                     ::odt.xml:        <Product ID="Word2019Volume" />
                     ::odt.xml:        <Product ID="Word2021Retail" />
                     ::odt.xml:        <Product ID="Word2021Volume" />
+                    ::odt.xml:        <Product ID="Word2024Retail" />
+                    ::odt.xml:        <Product ID="Word2024Volume" />
                     ::odt.xml:        <Product ID="WordRetail" />
                     ::odt.xml:    </Remove>
+              ::!_odt_remove!:    -->
                     ::odt.xml:
                     ::odt.xml:    <^!--  <Add OfficeClientEdition="64" Channel="Monthly">  -->
                     ::odt.xml:    <Add SourcePath="!_odt_source_path!\" OfficeClientEdition="64" Channel="!_odt_channel!">
                     ::odt.xml:
                     ::odt.xml:        <^!--  https://go.microsoft.com/fwlink/p/?LinkID=301891  -->
+                    ::odt.xml:
+            ::!_odt_pro_2024!:        <^!--
+                    ::odt.xml:        <Product ID="ProPlus2024Volume">
+                    ::odt.xml:            <Language ID="!_odt_lang!" />
+                    ::odt.xml:            <Language ID="MatchPreviousMSI" />
+        ::!_odt__access_2024!:            <ExcludeApp ID="Access" />
+         ::!_odt__excel_2024!:            <ExcludeApp ID="Excel" />
+         ::!_odt__skype_2024!:            <ExcludeApp ID="Lync" />
+      ::!_odt__onedrive_2024!:            <ExcludeApp ID="OneDrive" />
+       ::!_odt__onenote_2024!:            <ExcludeApp ID="OneNote" />
+       ::!_odt__outlook_2024!:            <ExcludeApp ID="Outlook" />
+    ::!_odt__powerpoint_2024!:            <ExcludeApp ID="PowerPoint" />
+     ::!_odt__publisher_2024!:            <ExcludeApp ID="Publisher" />
+         ::!_odt__teams_2024!:            <ExcludeApp ID="Teams" />
+          ::!_odt__word_2024!:            <ExcludeApp ID="Word" />
+                    ::odt.xml:        </Product>
+            ::!_odt_pro_2024!:        -->
+                    ::odt.xml:
+       ::!_odt__project_2024!:        <Product ID="ProjectPro2024Volume">
+       ::!_odt__project_2024!:            <Language ID="!_odt_lang!" />
+       ::!_odt__project_2024!:            <Language ID="MatchPreviousMSI" />
+       ::!_odt__project_2024!:        </Product>
+       ::!_odt__project_2024!:
+         ::!_odt__visio_2024!:        <Product ID="VisioPro2024Volume">
+         ::!_odt__visio_2024!:            <Language ID="!_odt_lang!" />
+         ::!_odt__visio_2024!:            <Language ID="MatchPreviousMSI" />
+         ::!_odt__visio_2024!:        </Product>
+         ::!_odt__visio_2024!:
                     ::odt.xml:
             ::!_odt_pro_2021!:        <^!--
                     ::odt.xml:        <Product ID="ProPlus2021Volume">

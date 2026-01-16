@@ -17,7 +17,6 @@
 
 - [特性](#-特性)
 - [安装](#-安装)
-- [使用方法](#-使用方法)
 - [使用示例](#-使用示例)
 - [功能详情](#-功能详情)
 - [开源协议](#-开源协议)
@@ -28,10 +27,10 @@
 
 - **xlib/xlib.cmd** - 仅使用第一方工具，开箱即用，包含数十个实用命令
 - **x3rd/x3rd.cmd** - 对第三方命令行工具进行封装
-- 支持 Windows、macOS 和 Linux 跨平台
+- 支持 Windows、macOS 和 Linux 平台
 - 内置错误处理和帮助系统
 - 支持 UNC 路径（Windows SMB）
-- 依赖少，易于部署
+- 易于部署
 
 ---
 
@@ -58,25 +57,15 @@
 xlib -h
 xlib --help
 
+# 显示命令帮助
+xlib <命令> -h
+xlib <命令> --help
+
 # 显示版本
 xlib version
 ```
 
 ---
-
-## 🚀 使用方法
-
-### 基本语法
-
-```bash
-# Windows
-xlib.cmd <命令> [选项]
-
-# macOS/Linux
-xlib <命令> [选项]
-```
-
-### 获取帮助
 
 - 使用 `-h` 或 `--help` 获取命令使用帮助
 - 在命令后使用 `-h` 或 `--help` 获取该命令的详细帮助
@@ -94,21 +83,21 @@ xlib <命令> [选项]
 xlib wol aa:bb:cc:dd:ee:ff
 ```
 
-### BitLocker 加密
+### BitLocker 加密（Windows）
 
 在不支持 TPM 的计算机上快速加密所有磁盘：
 
 ```batch
-# 准备一个 FAT32 格式的 USB 设备，用于存放开机密钥
+:: 准备一个 FAT32 格式的 USB 设备，用于存放开机密钥
 xlib vol --encrypts-all
 
-# 从 UNC 路径（SMB 服务器）执行
+:: 从 UNC 路径（SMB 服务器）执行
 \\192.168.1.1\xcmd\xlib vol --encrypts-all
 
-# 隐藏加密标识和 BitLocker 菜单
+:: 隐藏加密标识和 BitLocker 菜单
 xlib vol --hide-bitlocker
 
-# 查看更多详情
+:: 查看更多详情
 xlib vol --help
 ```
 
@@ -152,26 +141,33 @@ xlib hosts
 
 ### Microsoft Office 部署
 
-搭建可定制安装的 Microsoft Office 服务：
+自动化安装 Microsoft Office
 
 ```batch
-# 下载最新的 Office 安装文件
-xlib odt -d \\192.168.1.1\xcmd
+:: 帮助信息
+xlib odt -h
 
-# 安装指定组件
-\\192.168.1.1\xcmd\xlib odt -i word excel powerpoint
+:: 先下载最新的 Office 安装文件
+xlib odt -d D:\ 2021
+xlib odt -d \\192.168.1.1\xcmd 2024
+
+:: 自动安装指定组件
+\\192.168.1.1\xcmd\xlib odt -i word excel powerpoint 2024
 ```
 
 ### KMS 激活
 
-使用 KMS 服务激活 Windows 和 Office：
+使用 KMS 服务自动激活 Windows 和 Office：
 
 ```batch
-# 激活 Windows
+:: 使用 KMS 服务激活 Windows
 xlib kms -s 192.168.1.1
 
-# 激活 Office
+:: 使用 KMS 服务激活 Office
 xlib kms -o 192.168.1.1
+
+:: 使用 KMS 服务激活 Windows 和 Office
+\\192.168.1.1\xcmd\xlib kms -a
 ```
 
 ### 剪贴板文件传输

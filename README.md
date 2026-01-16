@@ -19,7 +19,6 @@ A collection of commonly used batch and shell functions.
 
 - [Features](#-features)
 - [Installation](#-installation)
-- [Usage](#-usage)
 - [Examples](#-examples)
 - [Features Detail](#-features-detail)
 - [License](#-license)
@@ -30,10 +29,10 @@ A collection of commonly used batch and shell functions.
 
 - **xlib/xlib.cmd** - Uses only first-party tools, works out of the box with dozens of practical commands
 - **x3rd/x3rd.cmd** - Wraps third-party command-line tools
-- Cross-platform support for Windows, macOS, and Linux
+- Support for Windows, macOS, and Linux
 - Built-in error handling and help system
 - Support for UNC paths (Windows SMB)
-- Minimal dependencies and easy to deploy
+- Easy to deploy
 
 ---
 
@@ -60,25 +59,15 @@ A collection of commonly used batch and shell functions.
 xlib -h
 xlib --help
 
+# Show command help
+xlib <command> -h
+xlib <command> --help
+
 # Show version
 xlib version
 ```
 
 ---
-
-## 🚀 Usage
-
-### Basic Syntax
-
-```bash
-# Windows
-xlib.cmd <command> [options]
-
-# macOS/Linux
-xlib <command> [options]
-```
-
-### Available Help
 
 - Use `-h` or `--help` to get usage help for any command
 - Use `-h` or `--help` after a command to get detailed help for that specific command
@@ -96,21 +85,21 @@ Wake up a computer on the same network:
 xlib wol aa:bb:cc:dd:ee:ff
 ```
 
-### BitLocker Encryption
+### BitLocker Encryption (Windows)
 
 Encrypt all disks on a computer without TPM support:
 
 ```batch
-# Prepare a FAT32 USB device for storing startup keys
+:: Prepare a FAT32 USB device for storing startup keys
 xlib vol --encrypts-all
 
-# Run from UNC path (SMB server)
+:: Run from UNC path (SMB server)
 \\192.168.1.1\xcmd\xlib vol --encrypts-all
 
-# Hide encryption indicators and BitLocker menu
+:: Hide encryption indicators and BitLocker menu
 xlib vol --hide-bitlocker
 
-# For more details
+:: For more details
 xlib vol --help
 ```
 
@@ -154,26 +143,33 @@ xlib hosts
 
 ### Microsoft Office Deployment
 
-Set up a customizable Microsoft Office installation service:
+Automated Microsoft Office Installation
 
 ```batch
-# Download latest Office installation files
-xlib odt -d \\192.168.1.1\xcmd
+:: help info
+xlib odt -h
 
-# Install specific components
-\\192.168.1.1\xcmd\xlib odt -i word excel powerpoint
+:: Download the latest Office installation files first
+xlib odt -d \\192.168.1.1\xcmd 2024
+xlib odt -d D:\ 2021
+
+:: Automatically install specified components
+\\192.168.1.1\xcmd\xlib odt -i word excel powerpoint 2024
 ```
 
 ### KMS Activation
 
-Activate Windows and Office using KMS service:
+Automatically activate Windows and Office using KMS service:
 
 ```batch
-# Activate Windows
+:: Using KMS service activate Windows
 xlib kms -s 192.168.1.1
 
-# Activate Office
+:: Using KMS service activate Office
 xlib kms -o 192.168.1.1
+
+:: Using KMS service activate Windows and Office
+\\192.168.1.1\xcmd\xlib kms -a
 ```
 
 ### Clipboard File Transfer
