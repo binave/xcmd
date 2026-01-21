@@ -91,6 +91,8 @@ __xj_permission() {
 __xj_usage_help() {
 
         printf "
+xjar - JAR application process manager and operations tool
+
 usage: ${0##*/} [param...] ${XJ_BOLD}[option]${XJ_RE} [args...]
 
 param:

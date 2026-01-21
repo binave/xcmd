@@ -27,11 +27,13 @@
 
 - **xlib/xlib.cmd** - 仅使用第一方工具，开箱即用，包含数十个实用命令
 - **x3rd/x3rd.cmd** - 对第三方命令行工具进行封装
-- 支持 Windows、macOS 和 Linux 平台
-- 内置错误处理和帮助系统
-- 支持 UNC 路径（Windows SMB）
-- 易于部署
+    - 支持 Windows、macOS 和 Linux 平台
+    - 内置错误处理和帮助系统
+    - 支持 UNC 路径（Windows SMB）
+    - 易于部署
 
+- **xjar** - JAR 应用程序进程管理与运维工具，（linux 专用）
+- **qrsender.sh/qrsender.cmd** - 通过`二维码`将文件从 Linux 传输到 Windows
 ---
 
 ## 📦 安装
@@ -81,6 +83,17 @@ xlib version
 ```bash
 # aa:bb:cc:dd:ee:ff 为目标网卡的 MAC 地址
 xlib wol aa:bb:cc:dd:ee:ff
+```
+
+### 支持 cmd.exe 环境变量配置文件（Windows）
+
+在运行 `cmd.exe` 之前加载文件 `%USERPROFILE%\.batchrc`。<br/>
+类似于 Linux/Mac 中的 `~/.bashrc`
+
+```batch
+xlib var --install-config
+:: or
+xlib var -ic
 ```
 
 ### BitLocker 加密（Windows）
@@ -139,7 +152,7 @@ range=1-120
 xlib hosts
 ```
 
-### Microsoft Office 部署
+### Microsoft Office 部署（Windows）
 
 自动化安装 Microsoft Office
 
@@ -155,7 +168,7 @@ xlib odt -d \\192.168.1.1\xcmd 2024
 \\192.168.1.1\xcmd\xlib odt -i word excel powerpoint 2024
 ```
 
-### KMS 激活
+### KMS 激活（Windows）
 
 使用 KMS 服务自动激活 Windows 和 Office：
 
@@ -170,7 +183,7 @@ xlib kms -o 192.168.1.1
 \\192.168.1.1\xcmd\xlib kms -a
 ```
 
-### 剪贴板文件传输
+### 剪贴板文件传输（Windows）
 
 通过远程桌面剪贴板传输小文件或文件夹（适用于旧版本 Windows）：
 
@@ -195,6 +208,19 @@ xlib kms -o 192.168.1.1
 
 - Shell 实现的复杂数据结构（字典、队列等）
 - 区分 macOS 和 Linux 版本的函数
+
+### xjar (Linux)
+
+- 进程管理：start/stop/restart JAR 应用
+- 日志管理：查看、重定向、自动轮转、清理日志
+- 状态监控：显示进程信息、CPU/内存占用、网络连接、线程详情
+- 批量操作：支持多目录批量管理
+- 调试支持：支持 JDWP 远程调试
+
+### qrsender (Linux -> Windows)
+
+- 特性：在无法使用 USB、网络或蓝牙的隔离环境中传输文件
+- 原理：发送端在终端上以动画形式逐个显示 QR 码序列（带进度编号），接收端自动扫描 QR 码序列后还原原始文件，并计算丢包。发送端根据编号进行重传。
 
 ---
 

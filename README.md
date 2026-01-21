@@ -29,11 +29,13 @@ A collection of commonly used batch and shell functions.
 
 - **xlib/xlib.cmd** - Uses only first-party tools, works out of the box with dozens of practical commands
 - **x3rd/x3rd.cmd** - Wraps third-party command-line tools
-- Support for Windows, macOS, and Linux
-- Built-in error handling and help system
-- Support for UNC paths (Windows SMB)
-- Easy to deploy
+    - Support for Windows, macOS, and Linux
+    - Built-in error handling and help system
+    - Support for UNC paths (Windows SMB)
+    - Easy to deploy
 
+- **xjar** - JAR application process manager and operations tool, (for linux only)
+- **qrsender.sh/qrsender.cmd** - Transfer files from Linux to Windows via `QR code`
 ---
 
 ## 📦 Installation
@@ -83,6 +85,17 @@ Wake up a computer on the same network:
 ```bash
 # aa:bb:cc:dd:ee:ff is the target NIC MAC address
 xlib wol aa:bb:cc:dd:ee:ff
+```
+
+### Support for cmd.exe environment variable configuration files (Windows)
+
+Load the file `%USERPROFILE%\.batchrc` before running `cmd.exe`<br/>
+Similar to Linux/Mac's `~/.bashrc`
+
+```batch
+xlib var --install-config
+:: or
+xlib var -ic
 ```
 
 ### BitLocker Encryption (Windows)
@@ -141,7 +154,7 @@ range=1-120
 xlib hosts
 ```
 
-### Microsoft Office Deployment
+### Microsoft Office Deployment (Windows)
 
 Automated Microsoft Office Installation
 
@@ -157,7 +170,7 @@ xlib odt -d D:\ 2021
 \\192.168.1.1\xcmd\xlib odt -i word excel powerpoint 2024
 ```
 
-### KMS Activation
+### KMS Activation (Windows)
 
 Automatically activate Windows and Office using KMS service:
 
@@ -172,7 +185,7 @@ xlib kms -o 192.168.1.1
 \\192.168.1.1\xcmd\xlib kms -a
 ```
 
-### Clipboard File Transfer
+### Clipboard File Transfer (Windows)
 
 Transfer small files/folders via RDP clipboard (for older Windows versions):
 
@@ -197,6 +210,19 @@ Transfer small files/folders via RDP clipboard (for older Windows versions):
 
 - Shell implementation of complex data structures (dictionaries, queues, etc.)
 - Platform-specific functions for macOS and Linux
+
+### xjar (Linux)
+
+- Process Management: Start/Stop/Restart JAR applications
+- Log Management: View, redirect, auto-rotate, and clean logs
+- Status Monitoring: Display process information, CPU/memory usage, network connections, and thread details
+- Batch Operations: Supports multi-directory batch management
+- Debugging Support: Supports JDWP remote debugging
+
+### qrsender (Linux -> Windows)
+
+- Features: Transfer files in isolated environments where USB, network, or Bluetooth cannot be used.
+- Principle: The sender displays the QR code sequence sequentially as an animation on the terminal (with progress numbers). The receiver automatically scans the QR code sequence to reconstruct the original file and calculates packet loss. The sender retransmits based on the sequence numbers.
 
 ---
 

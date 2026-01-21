@@ -161,7 +161,7 @@ exit /b 0
     `) do call set path=%%a
     exit /b 0
 
-::: "    --install-config,   -ic                Support load %USERPROFILE%\.batchrc before cmd.exe run"
+::: "    --install-config,   -ic                Load the file %USERPROFILE%\.batchrc before running cmd.exe"
 :sub\var\--install-config
 :sub\var\-ic
     setlocal
