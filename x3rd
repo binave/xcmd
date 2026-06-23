@@ -79,10 +79,10 @@ _x3rd_lan () {
     esac;
 }
 
-### git toolsUsage: git [option] [args...] ##    backup        Backup git repositories#    rbundle [[user@host:]target_path] [[user@host:]source_path]#                  Remote git bundle##
+### git toolsUsage: git [option] [args...] ##    --backup, -b      Backup git repositories#    --rbundle, -r [[user@host:]target_path] [[user@host:]source_path]#                  Remote git bundle #    -ua           Update all##
 _x3rd_git () {
     case $1 in
-        backup)
+        --backup|-b)
             which git >/dev/null 2>&1 || exit 1; # git command not found
             local l o name tamp;
 
@@ -115,7 +115,7 @@ _x3rd_git () {
                 echo
             done < <(find . -type d -name "hooks")
         ;;
-        rbundle)
+        --rbundle|-r)
             shift;
             [ "$1" ] || exit 1; # target path is empty
             [ "$2" ] || exit 1; # source path is empty
@@ -148,6 +148,9 @@ _x3rd_git () {
                 git bundle verify "$1";
             fi
             return 0
+        ;;
+        --update-all|-ua)
+            find . -iname ".git" | while read dir; do printf "[INFO] \e[32m%s\x1b[0m\n" "${dir%/.git}"; git --git-dir=$dir --work-tree=${dir%/.git} pull; done;
         ;;
         *)
             exit 1; # invalid option
@@ -272,7 +275,7 @@ _x3rd_2flac () {
     return 0
 }
 
-### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##   PLAY_VOLUME               environment variable e.g. 0.5 ##   PLAY_SCALE                environment variable e.g. -1:480 ##
+### Play all multi-media in directory ##Usage: play [options...] [arg...] ##    --maxdepth, -d [num]     set find depth, default max#    --random,   -r           random play#    --ast,      -a [num]     select desired audio stream#    --skip,     -j [num]     skip some file ##environment variable #   PLAY_VOLUME               e.g. 0.5  #   PLAY_SCALE                e.g. -1:480 #   PLAY_OPTS                 e.g. -nodisp ##
 _x3rd_play () {
     which ffplay >/dev/null 2>&1 || exit 1; # ffplay command not found
     which xlib >/dev/null 2>&1 || exit 1; # xlib command not found
@@ -360,10 +363,10 @@ _x3rd_play () {
             avi|divx|flv|mkv|m2ts|mp4|mpg|rm|rmvb|vob|wmv)
                 # -ch_layout stereo #ED..A... set number of audio channels (from 0 to INT_MAX) (default 0) #Convert the 5.1 track to stereo
                 # -sn #disable subtitling
-                ffplay -hide_banner $stream_specifier -ch_layout stereo -sn -vf "scale=${PLAY_SCALE:-'-1:-1'}" -autoexit -af "volume=${PLAY_VOLUME:-0.85}" "$1" || return 1
+                ffplay -hide_banner $PLAY_OPTS $stream_specifier -ch_layout stereo -sn -vf "scale=${PLAY_SCALE:-'-1:-1'}" -autoexit -af "volume=${PLAY_VOLUME:-0.85}" "$1" || return 1
             ;;
             alac|ape|flac|m4a|mp3|ogg|tta|tak|wav|webm|wma)
-                ffplay -hide_banner -nodisp -autoexit -af "volume=${PLAY_VOLUME:-0.15}" "$1" || return 1
+                ffplay -hide_banner $PLAY_OPTS -nodisp -autoexit -af "volume=${PLAY_VOLUME:-0.15}" "$1" || return 1
             ;;
             *)
                 exit 1; # unknown suffix
