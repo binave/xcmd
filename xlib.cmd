@@ -3423,11 +3423,13 @@ exit /b 0
         EnterpriseS_100_14393@DCPHK-NFMTC-H88MJ-PFHPY-QJ4BJ
         EnterpriseS_100_17763@M7XTQ-FN8P6-TTKYV-9D4CC-J462D
         EnterpriseS_100_19044@M7XTQ-FN8P6-TTKYV-9D4CC-J462D
-        EnterpriseS_100_26100@KBN8V-HFGQ4-MGXVD-347P6-PDQGT
+        EnterpriseS_100_26100@M7XTQ-FN8P6-TTKYV-9D4CC-J462D
         EnterpriseSN_100_10240@2F77B-TNFGY-69QQF-B8YKP-D69TJ
         EnterpriseSN_100_14393@QFFDN-GRT3P-VKWWX-X7T3R-8B639
         EnterpriseSN_100_17763@92NFX-8DJQP-P6BBQ-THF9C-7CG2H
         EnterpriseSN_100_19044@92NFX-8DJQP-P6BBQ-THF9C-7CG2H
+
+        IoTEnterpriseS_100_26100@KBN8V-HFGQ4-MGXVD-347P6-PDQGT
 
         Professional_61@FJ82H-XT6CR-J8D7P-XQJJ2-GPDD4
         Professional_62@NG4HW-VH26C-733KW-K6F98-J8CK4
@@ -4371,9 +4373,9 @@ exit /b 0
 :: 62458b3ccb68fc5eea1eac4dee11e0eeca37b1fd
 :: CertUtil: -hashfile command completed successfully.
 ::
-:: SHA1 的 jdk-8u201-windows-x64.exe 哈希:
+:: SHA1 �? jdk-8u201-windows-x64.exe 哈希:
 :: 62458b3ccb68fc5eea1eac4dee11e0eeca37b1fd
-:: CertUtil: -hashfile 命令成功完成。
+:: CertUtil: -hashfile 命令成功完成�?
 ::
 :: SHA1 hash of file jdk-8u201-windows-x64.exe:
 :: 62 45 8b 3c cb 68 fc 5e ea 1e ac 4d ee 11 e0 ee ca 37 b1 fd
@@ -4381,7 +4383,7 @@ exit /b 0
 ::
 :: SHA1 哈希(文件 jdk-8u201-windows-x64.exe):
 :: 62 45 8b 3c cb 68 fc 5e ea 1e ac 4d ee 11 e0 ee ca 37 b1 fd
-:: CertUtil: -hashfile 命令成功完成。
+:: CertUtil: -hashfile 命令成功完成�?
 :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 :this\hash
     if exist "%~2" for /f "usebackq delims=" %%a in (`

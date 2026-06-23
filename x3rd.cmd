@@ -67,11 +67,18 @@ exit /b 0
 
 ::: "Output version and exit"
 :x3rd\version
-    >&3 echo 0.21.4.11
+    >&3 echo 0.21.5.0
     exit /b 0
 
-::: "Backup git repositories"
-:x3rd\gitb
+::: "Git tools" "" "usage: %~n0 git [option]" ""
+:x3rd\git
+    if "%~1"=="" call :this\annotation %0 & goto :eof
+    call :sub\git\%* 2>nul
+    goto :eof
+
+:::  "    -b         Backup git repositories"
+:sub\git\--backup
+:sub\git\-b
     call :sub\path\--contain git.exe || exit /b 2 @REM git command not found
     setlocal enabledelayedexpansion
 
@@ -106,6 +113,12 @@ exit /b 0
     )
     endlocal
     exit /b 0
+
+:::  "    -ua        Update all git repositories"
+:sub\git\--update-all
+:sub\git\-ua
+    for /r /d %%a in (.g?t) do git.exe --git-dir="%%a" --work-tree="%%~dpa" pull
+    goto :eof
 
 ::: "Maven repository tools, Use '-h' for a description of the options" "" "usage: %~n0 m2 [option]" ""
 :x3rd\m2
