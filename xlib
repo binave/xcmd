@@ -780,7 +780,7 @@ _xlib_vol () {
             [ -d "$2" ] || set -- "$1" "/Applications/Install";
             while read tmp; do
                 break;
-            done < <(find "$2"* -iname "createinstallmedia" 2>/dev/null);
+            done < <(find "$2"*/ -iname "createinstallmedia" 2>/dev/null);
             [ -f "$tmp" ] || exit 1; # install source not found
             [ -f "${tmp%Resources*}SharedSupport/InstallInfo.plist" ] || {
                 if [ -f "/macOS Install Data/InstallInfo.plist" ]; then
@@ -828,7 +828,7 @@ _xlib_vol () {
 #     done < <(diskutil apfs list)
 # }
 
-### Directory tools ##Usage: dir [option] [args...] ##    --unhidden, -uh [dir_path]   No hidden directory #    --iosdata #    --own           [dir_path]   Set directory owner #    --boot          [dir_path]   Rebuild boot file #    --count,    -c  [[dir_path]] Get file count #    --unique,   -u  [[dir_path]] Search for duplicate files##
+### Directory tools ##Usage: dir [option] [args...] ##    --unhidden, -uh [dir_path]   No hidden directory #    --list-container-data-info, -lcdi #    --own           [dir_path]   Set directory owner #    --boot          [dir_path]   Rebuild boot file #    --count,    -c  [[dir_path]] Get file count #    --unique,   -u  [[dir_path]] Search for duplicate files##
 _xlib_dir () {
     case $1 in
         --unhidden|-uh)
@@ -838,7 +838,7 @@ _xlib_dir () {
             chflags nohidden "$1"/*;
             sudo spctl --master-disable;
         ;;
-        --iosdata)
+        --list-container-data-info|-lcdi)
             local i;
             for i in ~/Library/Containers/*-*-????-*-*; do
                 printf '%s # %s\n' "$i" $(
