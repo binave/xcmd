@@ -2472,6 +2472,44 @@ exit /b 0
     bcdedit.exe /set {default} bootmenupolicy legacy
     goto :eof
 
+::: TODO
+:winre\boot     [bcd_path] [boot_type] [wim_path]
+    setlocal enabledelayedexpansion
+    set _uuid=
+    for /f "usebackq tokens=2 delims={}" %%a in (`
+        bcdedit.exe /store %1 /create /d "Windows Recovery" /device
+    `) do for /f "usebackq tokens=2 delims={}" %%b in (`
+        bcdedit.exe /store %1 /create /d "Windows Recovery Environment" /application osloader
+    `) do (
+        for %%c in (
+            "{%%a} ramdisksdidevice partition=%~d3"
+            "{%%a} ramdisksdipath %~p3boot.sdi"
+            "{%%b} device ramdisk=[%~d3]%~pnx3,{%%a}"
+            "{%%b} path \Windows\system32\winload.%~2"
+            "{%%b} osdevice ramdisk=[%~d3]%~pnx3,{%%a}"
+            "{%%b} systemroot \Windows"
+            "{%%b} nx OptIn"
+            "{%%b} winpe Yes"
+        ) do bcdedit.exe /store %1 /set %%~c
+
+        for /f "usebackq tokens=1*" %%c in (`
+            bcdedit.exe /store %1 /v
+        `) do for /f "delims==" %%e in (
+            "%%d"
+        ) do (
+            if "%%c"=="identifier" set _uuid=%%d
+            if "%%c%%e"=="osdevicevhd" for %%f in (
+                "!_uuid! recoverysequence {%%b}"
+                "!_uuid! recoveryenabled yes"
+            ) do bcdedit.exe /store %1 /set %%~f
+        )
+    )
+    endlocal
+
+    bcdedit.exe /store %1 /set {default} bootmenupolicy legacy
+    goto :eof
+
+
 ::: "    --winpe,   -p  [file_path]   Create WinPE boot Menu"
 :sub\boot\--winpe [wim]
 :sub\boot\-p
