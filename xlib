@@ -154,6 +154,10 @@ _xlib_pkg () {
             return 0
         ;;
         --get|-g)
+            [[ ${OSTYPE/darwin/} > 24.9 ]] && {
+                printf "\033[31mError: OS version too new.\033[0m\n" >&2;
+                return 1
+            }
             __get_pkg $2
         ;;
         *)
@@ -839,6 +843,7 @@ _xlib_dir () {
             sudo spctl --master-disable;
         ;;
         --list-container-data-info|-lcdi)
+            # TODO OSTYPE?
             local i;
             for i in ~/Library/Containers/*-*-????-*-*; do
                 printf '%s # %s\n' "$i" $(
