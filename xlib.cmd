@@ -3131,7 +3131,7 @@ exit /b 0
         wmic.exe cpu get Name^,NumberOfCores^,NumberOfLogicalProcessors^,ProcessorId ^&
         wmic.exe memorychip get BankLabel^,Capacity^,DataWidth^,Manufacturer^,PartNumber^,SerialNumber^,Speed ^&
         wmic.exe diskdrive get Index^,InterfaceType^,Model^,SerialNumber^,Signature^,Size ^&
-        wmic.exe nicconfig where "MACAddress is not null" get Description^,IPAddress^,IPEnabled^,MACAddress
+        2^>nul wmic.exe nicconfig where "MACAddress is not null" get Description^,IPAddress^,IPEnabled^,MACAddress
     `) do echo ; %%~a
     exit /b 0
 
@@ -3193,12 +3193,16 @@ exit /b 0
         echo     PNPClass: %PNPClass%
         echo     Status: %Status%
     )
+    if not defined HardwareID goto inter\print-info
     echo     HardwareID:
     set HardwareID=%HardwareID:&amp;=&%
     for %%a in (%HardwareID:~1,-1%) do echo         %%~a
+  :inter\print-info
+    if not defined CompatibleID goto :eof
     echo     CompatibleID:
     set CompatibleID=%CompatibleID:&amp;=&%
-    for %%a in (%CompatibleID:~1,-1%) do echo         %%~a
+    set CompatibleID=%CompatibleID:~1,-1%
+    for %%a in (%CompatibleID%) do echo         %%~a
     echo;
     goto :eof
 
@@ -4221,38 +4225,33 @@ exit /b 0
 :sub\str\--lcs
     if "%~2"=="" exit /b 95 @REM string is empty
     setlocal enabledelayedexpansion
-    set "_1=%~1"
-    set "_2=%~2"
-    call :sub\str\--length "%~1" #1
-    call :sub\str\--length "%~2" #2
-    set _1m=
-    set _2n=
-    set _count=
-    set _i=
+    set "_str1=%~1"
+    set "_str2=%~2"
+    call :sub\str\--length "%~1" _str1.len
+    call :sub\str\--length "%~2" _str2.len
+    set /a _cycle=0, _len=0, _pre=0
     set _stat=
-    set _sub=
-    set /a _y=0, _len=0, _pre=0
 
     for /f "usebackq tokens=1,2 delims=#" %%a in (`
-        set /a #1-1 ^& set /p^=#^<nul^& set /a -1*#2+1
+        set /a _str1.len-1 ^& set /p^=#^<nul^& set /a -1*_str2.len+1
     `) do for /l %%c in (
         %%a,-1,%%b
     ) do (
         if %%c geq 0 (
-            set /a _m=%%c, _n=0
-        ) else set /a _m=0, _n=-1*%%c
+            set /a _tmp1=%%c, _tmp2=0
+        ) else set /a _tmp1=0, _tmp2=-1*%%c
 
-        if not !_y! geq !#2! set /a _y+=1
-        set /a _sub=_m, _count=0, _i=_y-_n-1
+        if !_cycle! lss !_str2.len! set /a _cycle+=1
+        set /a _sub=_tmp1, _count=0, _idx=_cycle-_tmp2-1
 
         for /l %%d in (
-            0,1,!_i!
+            0,1,!_idx!
         ) do (
-            set /a _1m=_m+%%d, _2n=_n+%%d
-            call set _1m=%%_1:~!_1m!,1%%
-            call set _2n=%%_2:~!_2n!,1%%
-            if "!_1m!"=="!_2n!" (
-                if not defined _stat set /a _sub=_m+%%d, _count=0, _stat=1
+            set /a _offset1=_tmp1+%%d, _offset2=_tmp2+%%d
+            call set _offset1=%%_str1:~!_offset1!,1%%
+            call set _offset2=%%_str2:~!_offset2!,1%%
+            if "!_offset1!"=="!_offset2!" (
+                if not defined _stat set /a _sub=_tmp1+%%d, _count=0, _stat=1
                 set /a _count+=1
             ) else (
                 set _stat=
@@ -4261,12 +4260,11 @@ exit /b 0
         )
         if !_count! gtr !_len! set /a _pre=_sub, _len=_count
     )
-    set _i=!_pre!,!_len!
+    set _lcs=!_str1:~%_pre%,%_len%!
     endlocal & if "%~3"=="" (
-        echo %_i%
-    ) else set %~3=%_i%
+        echo %_lcs%
+    ) else set %~3=%_lcs%
     goto :eof
-
 
 ::: "Print text to standard output." "" "usage: %~n0 txt [option] [...]" ""
 :xlib\txt
@@ -4406,23 +4404,6 @@ exit /b 0
     ) do for %%b in (%0) do call :this\hash %%~nb "%%~a" || exit /b 2 @REM hash error
     exit /b 0
 
-:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-:: SHA1 hash of jdk-8u201-windows-x64.exe:
-:: 62458b3ccb68fc5eea1eac4dee11e0eeca37b1fd
-:: CertUtil: -hashfile command completed successfully.
-::
-:: SHA1 �? jdk-8u201-windows-x64.exe 哈希:
-:: 62458b3ccb68fc5eea1eac4dee11e0eeca37b1fd
-:: CertUtil: -hashfile 命令成功完成�?
-::
-:: SHA1 hash of file jdk-8u201-windows-x64.exe:
-:: 62 45 8b 3c cb 68 fc 5e ea 1e ac 4d ee 11 e0 ee ca 37 b1 fd
-:: CertUtil: -hashfile command completed successfully.
-::
-:: SHA1 哈希(文件 jdk-8u201-windows-x64.exe):
-:: 62 45 8b 3c cb 68 fc 5e ea 1e ac 4d ee 11 e0 ee ca 37 b1 fd
-:: CertUtil: -hashfile 命令成功完成�?
-:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 :this\hash
     if exist "%~2" for /f "usebackq delims=" %%a in (`
         certutil.exe -hashfile %2 %~1

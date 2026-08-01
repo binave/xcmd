@@ -950,7 +950,7 @@ _xlib_lock () {
     :
 }
 
-### String manage ##Usage: str [option] ...##    --random,   -r   [count]      Print random string #    --lower,    -l   [str]        Convert lower case #    --upper,    -u   [str]        Convert upper case #    --tac            [[file]]#    --xmlvalue, -xv  [tag_name]   Get xml value #    --unascii,  -ua  [dir_path]   Print text not in ASCII char #    --dhms,     -t   [secends]    Format Unix timestamp to ??d ??h ??m ??s #    --passwd,   -pw  [passwd_str] Get password for stdin chpasswd -e ##
+### String manage ##Usage: str [option] ...##    --random,   -r   [count]      Print random string #    --lower,    -l   [str]        Convert lower case #    --upper,    -u   [str]        Convert upper case #    --tac            [[file]]#    --xmlvalue, -xv  [tag_name]   Get xml value #    --unascii,  -ua  [dir_path]   Print text not in ASCII char #    -lcs             [str1] [str2] #                                  Print longest common subsequence#    --dhms,     -t   [secends]    Format Unix timestamp to ??d ??h ??m ??s #    --passwd,   -pw  [passwd_str] Get password for stdin chpasswd -e ##
 _xlib_str () {
     case $1 in
         --lower|-l)
@@ -1039,6 +1039,10 @@ _xlib_str () {
             which openssl >/dev/null 2>&1 || exit 1; # openssl command not found
             [ "$1" ] || exit 1; # Args is empty
             openssl passwd -1 "$1"
+        ;;
+        -lcs)
+            source "$(cd `dirname $0`; pwd)/bash.xlib";
+            _lcs "$2" "$3"
         ;;
         *)
             exit 1; # invalid option
