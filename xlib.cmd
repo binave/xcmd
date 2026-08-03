@@ -1556,6 +1556,24 @@ exit /b 0
     >&3 echo need reboot.
     exit /b 0
 
+::: "    --firewall                                    Open port by firewall rule name"
+:sub\oset\--firewall
+    setlocal
+    set _RegKeyName=HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules
+    for /f "usebackq tokens=1,2*" %%a in (`
+        reg.exe query %_RegKeyName% /f %~1*
+    `) do if "%%b"=="REG_SZ" for /f "usebackq tokens=1-7* delims=|" %%d in (
+        '%%c'
+    ) do for /f "usebackq tokens=1,3 delims==|" %%l in (
+        '%%i^|%%j'
+    ) do if /i "%%m"=="Profile" (
+        reg.exe add %_RegKeyName% /v %%a /t %%b /d "%%d|%%e|Active=TRUE|%%g|%%h|%%k" /f
+    ) else if /i "%%l"=="Profile" (
+        reg.exe add %_RegKeyName% /v %%a /t %%b /d "%%d|%%e|Active=TRUE|%%g|%%h|%%j|%%k" /f
+    ) else reg.exe add %_RegKeyName% /v %%a /t %%b /d "%%d|%%e|Active=TRUE|%%g|%%h|%%i|%%j|%%k" /f
+    endlocal
+    goto :eof
+
 ::: "    --dav-http                                    Allow webdav client use http"
 :sub\oset\--dav-http
     reg.exe add ^
