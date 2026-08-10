@@ -603,8 +603,10 @@ exit /b 0
     ) do for /l %%b in (
         %_range:-=,1,%
     ) do (
-        call :this\thread_valve 50 cmd.exe --find
-        start /b %~nx0 \\:ip\--find %%~na.%%b %_keys%
+        set _tag=1
+        for %%c in (%_excludes%) do if "%%~na.%%b"=="%%c" set _tag=
+        if defined _tag call :this\thread_valve 50 cmd.exe --find
+        if defined _tag start /b %~nx0 \\:ip\--find %%~na.%%b %_keys%
     )
 
     :: print ipv4 for MAC address not catch
