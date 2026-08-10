@@ -802,6 +802,7 @@ _xlib_vol () {
                     "${tmp%Resources*}Info.plist" | awk '{printf $0 " "};END{printf "\n"}'
             # sudo "$tmp" --volume "$1" --applicationpath "${tmp%/Contents*}" --nointeraction;
             sudo "$tmp" --volume "$1" --nointeraction;
+            touch "$1"/.metadata_never_index;
         ;;
         *)
             exit 1; # invalid option
@@ -1162,6 +1163,7 @@ __ip_find () {
     # get [setting]
     __load_ini sip_setting;
     route_ip=`_map --get route`;
+    # arr=(${var//,/ }) only support bash
     route_ip=(${route_ip//,/ } `[[ $OSTYPE == darwin* ]] && {
         netstat -nr | awk '/^default[[:space:]]/ && ! /tun|tap/ && /([0-9]+\.){3,}/{print $2}';
         :
@@ -1172,6 +1174,9 @@ __ip_find () {
     done
     range=`_map --get range`;
     [ "$range" ] || range="1-127";
+
+    exclude_ip=`_map --get exclude`;
+    [ "$exclude_ip" ] && exclude_ip=(${exclude_ip//,/ });
     _map --clear;
 
     __load_ini hosts;
@@ -1239,8 +1244,10 @@ __ip_find () {
 
     for r in ${route_ip[@]}; do
         for i in `seq ${range/-/ }`; do
+            j=true;
+            for e in ${exclude_ip[@]}; do [ "${r%.*}.$i" == "$e" ] && j=false; done
             # get thread
-            _thread_valve --run __match_mac ${r%.*}.$i
+            $j && _thread_valve --run __match_mac ${r%.*}.$i
         done
     done
 
