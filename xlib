@@ -13,40 +13,74 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+# Resolve the real script directory, follow symlink
+__script_dir () {
+    [ "$__SELF_DIR" ] && { printf "%s" "$__SELF_DIR"; return; }
+    local src=$0 dir;
+    while [ -L "$src" ]; do
+        dir=$(cd "$(dirname "$src")" && pwd);
+        src=$(readlink "$src");
+        case $src in /*) :;; *) src="$dir/$src";; esac
+    done
+    cd "$(dirname "$src")" && pwd
+}
+__SELF_DIR=$(__script_dir)
+
 # Framework:
 #
-#     If the function names conform to the specifications:
-#         External call function.
+#     A function whose name conforms to the specification gets:
+#         External invocation.
 #         Error handling.
-#         Display help information.
-#         Print the functions list.
+#         Help information.
+#         The function list.
+#         Shell completion.
 #
-#     e.g.
-#         ### [brief_introduction] #[description_1] #[description_1]
+#     The annotation is both the help text and the completion source; keep it next to the code:
+#         A [###] at the line start is for the command; an indented [###] is for the case pattern below it.
+#
+#     For example:
+#         ### [brief_introduction]
+#         ### Usage: [function_name] [OPTION]... [OPERAND]...
 #         [script_name]_[function_name](){
-#             ...
 #             [function_body]
-#             '''
+#             case $1 in
+#                 ###   -o, --option=FILE   [description]
+#                 --option|-o)
+#                     [function_body]
+#                 ;;
+#                 ###   OPERAND=FILE   [description]
+#                 *)
+#                     [function_body]
+#                 ;;
+#             esac
 #             # exit and display [error_description]
 #             exit 1; # [error_description]
-#             '''
-#             # return false status
-#             return 1
 #         }
+#
+#     The metavariable names the completion source:
+#         FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND
+#         {a|b} is an enumeration, e.g., {yes|no}
+#
+#     [###] is reserved for annotation; any other comment must use [#]:
+#         Use [comp --check] to check the annotations.
 
-### Output version and exit.
+### Print version and exit
+### Usage: version
 _xlib_version () {
-    printf "0.21.4.11\n" >&2;
+    printf "0.22.0.0\n" >&2;
     return 0
 }
 
-### Cursor # ##Usage: cur [option] ##    --hide, -    hidden cursor#    --show, +    show cursor ##
+### Control the cursor
+### Usage: cur [OPTION]
 _xlib_cur () {
     case $1 in
+        ###   -, --hide   hide the cursor
         --hide|-)
             printf '\033[?25l'
-            # trap 'printf "\033[?25h"; exit' INT; # show cursor after CTRL-C
+            # trap 'printf "\033[?25h"; exit' INT; # Show the cursor after Ctrl-C.
         ;;
+        ###   +, --show   show the cursor
         --show|+)
             printf '\033[?25h'
         ;;
@@ -57,95 +91,102 @@ _xlib_cur () {
             printf "${p#*[}\n"
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### Create/Convert package file ##Usage: pkg [options] [path] ##    --dmg,     -n  [folder]          Create DMG #    --verify,  -t  [dmg_file]        verify dmg #    --dmg2iso, -di [dmg_file_path]   Convert a DMG file to ISO #    --iso2dmg, -id [iso_file_path]   Convert an ISO file to DMG format #    --udf,     -u  [dir_path]        Create ISO by directory#    --dd,      -w  [img_path] [disk_path] #                                     Write img to disk #    --get,     -g  [[countdown_min]] Get apk file from AppStore #                                  1. Login AppStore and Install App #                                  2. Run this command before download complete #                                  3. Keep shell open ##
+### Create or convert a package file
+### Usage: pkg [OPTION]... [PATH]
 _xlib_pkg () {
-    [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
     local tmp;
     case $1 in
+        ###   -n, --dmg=DIRECTORY   create a DMG from a DIRECTORY
         --dmg|-n)
             shift;
-            [ -d "$1" ] || exit 1; # target folder not found.
-            # trim, # linux:${1:0:-1} -> darwin:${1:0:${#1}-1}
+            [ -d "$1" ] || exit 1; # Target directory not found.
+            # Trim: # linux:${1:0:-1} -> darwin:${1:0:${#1}-1}
             [ "${1:0-1}" == "/" ] && tmp="${1:0:${#1}-1}" || tmp="$1";
             tmp=${tmp##*/};
             hdiutil create -srcfolder "$1" -skipunreadable -format UDZO "$tmp.dmg" || return 1
         ;;
+        ###   -t, --verify=FILE   verify a DMG FILE
         --verify|-t)
             shift;
-            [ "${1##*.}" == "dmg" -o "${1##*.}" == "DMG" ] || exit 1; # format error
+            [ "${1##*.}" == "dmg" -o "${1##*.}" == "DMG" ] || exit 1; # Invalid format.
             hdiutil verify "$1"
         ;;
+        ###   -di, --dmg2iso=FILE   convert a DMG FILE to ISO
         --dmg2iso|-di)
             shift;
-            [ -f "$1" ] || exit 1; # dmg file not found
-            [ "${1##*.}" == "dmg" -o "${1##*.}" == "DMG" ] || exit 1; # file not dmg
+            [ -f "$1" ] || exit 1; # DMG file not found.
+            [ "${1##*.}" == "dmg" -o "${1##*.}" == "DMG" ] || exit 1; # Not a DMG file.
             tmp=${1##*/};
             tmp=${tmp%.*};
             hdiutil convert "$1" -format UDTO -o "$tmp.iso";
         ;;
+        ###   -id, --iso2dmg=FILE   convert an ISO FILE to DMG
         --iso2dmg|-id)
             shift;
-            [ -f "$1" ] || exit 1; # iso file not found
-            [ "${1##*.}" == "iso" -o "${1##*.}" == "ISO" ] || exit 1; # file not iso
+            [ -f "$1" ] || exit 1; # ISO file not found.
+            [ "${1##*.}" == "iso" -o "${1##*.}" == "ISO" ] || exit 1; # Not an ISO file.
             tmp=${1##*/};
             tmp=${tmp%.*};
             hdiutil convert "$1" -format UDRW -o "$tmp.dmg";
         ;;
+        ###   -u, --udf=DIRECTORY   create an ISO from a DIRECTORY
         --udf|-u)
             shift;
-            [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
-            [ -d "$1" ] || exit 1; # directory not found
+            [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
+            [ -d "$1" ] || exit 1; # Directory not found.
             # hdiutil makehybrid -iso -joliet -o win8.iso win8.cdr
             hdiutil makehybrid -udf -udf-version 1.02 -o "$1.iso" "$1";
             return 0
         ;;
+        ###   -w, --dd=IMAGE|DEVICE   write IMAGE to DEVICE, e.g., /dev/disk2
         --dd|-w)
             shift;
             # caller 0;
-            [ -f "$1" ] || exit 1; # img file not found
+            [ -f "$1" ] || exit 1; # Image file not found.
             local target i j k l;
             [ "${2:0:9}" == "/dev/disk" ] && {
                 target=$2
             } || {
-                # cut mount info
+                # Cut the mount info.
                 while read i j k; do
                     [ "${k%% (*}" == "$2" ] && target=$i
                 done < <(mount)
             }
-            # trim
+            # Trim the slice suffix.
             [[ $target == *disk[0-9]s[0-9] ]] && target=${target%s*};
 
             case ${1##*.} in
                 img)
-                    diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
-                    sudo dd if="$1" of=$target bs=4m || exit 1; # dd error
+                    diskutil unmountDisk $target >/dev/null || exit 1; # Cannot unmount this disk.
+                    sudo dd if="$1" of=$target bs=4m || exit 1; # The dd command failed.
                 ;;
                 iso)
-                    diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
+                    diskutil unmountDisk $target >/dev/null || exit 1; # Cannot unmount this disk.
                     hdiutil convert "$1" -format UDRW -o "${1%.*}.dmg" >/dev/null;
-                    sudo dd if="${1%.*}.dmg" of=$target bs=4m || exit 1; # dd error
+                    sudo dd if="${1%.*}.dmg" of=$target bs=4m || exit 1; # The dd command failed.
                     rm "${1%.*}.dmg";
                     # sudo dd if="${1%.*}.dmg" of=$target bs=4m & while killall -USR1 dd; do
                     #     sleep 10;
                     # done | _xlib_prefix "%F %T, "
                 ;;
                 gz)
-                    which gzcat >/dev/null 2>&1 || exit 1; # gzcat command not found
-                    diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
-                    gzcat "$1" | sudo dd of=$target bs=4m || exit 1; # dd error
+                    which gzcat >/dev/null 2>&1 || exit 1; # The gzcat command was not found.
+                    diskutil unmountDisk $target >/dev/null || exit 1; # Cannot unmount this disk.
+                    gzcat "$1" | sudo dd of=$target bs=4m || exit 1; # The dd command failed.
                 ;;
                 xz)
-                    which xzcat >/dev/null 2>&1 || exit 1; # xzcat command not found. try: brew install xz
-                    diskutil unmountDisk $target >/dev/null || exit 1; # Can not unmount this disk
-                    xzcat "$1" | sudo dd of=$target bs=4m || exit 1; # dd error
+                    which xzcat >/dev/null 2>&1 || exit 1; # The xzcat command was not found; try 'brew install xz'.
+                    diskutil unmountDisk $target >/dev/null || exit 1; # Cannot unmount this disk.
+                    xzcat "$1" | sudo dd of=$target bs=4m || exit 1; # The dd command failed.
                 ;;
                 *)
-                    exit 1; # format not support
+                    exit 1; # Format not supported.
                 ;;
             esac
 
@@ -153,6 +194,7 @@ _xlib_pkg () {
             diskutil eject $target >/dev/null
             return 0
         ;;
+        ###   -g, --get[=NUMBER]   get an APK file from the AppStore; NUMBER is the countdown in minutes
         --get|-g)
             [[ ${OSTYPE/darwin/} > 24.9 ]] && {
                 printf "\033[31mError: OS version too new.\033[0m\n" >&2;
@@ -161,29 +203,29 @@ _xlib_pkg () {
             __get_pkg $2
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-# Get apk file from AppStore
+# Get an APK file from the AppStore.
 __get_pkg () {
-    [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
     # sudo chown -R $USER:`id -gn $USER` /private/var/folders
     # sudo chmod -R 755 /private/var/folders
-    [ `ps -ef | grep -c "${0##*/}.*pkg.*-g"` -gt 3 ] && exit 1; # pkg command is already running
+    [ `ps -ef | grep -c "${0##*/}.*pkg.*-g"` -gt 3 ] && exit 1; # The pkg command is already running.
 
-    # Override pkg map: pkg[$serial_number]="$path"
+    # Override the pkg map: pkg[$serial_number]="$path".
     function ___get_pkg_serial_number () {
         local k v;
         while read k v; do
-            # Put in map
+            # Put it in the map.
             [ "$v" ] && pkg[$k]="$v";
         done < <(find "$1" -type f -iname "*.pkg" -exec ls -i {} \; 2>/dev/null); # *.tmp *.pkg
         return 0
     };
 
-    # hash and move to ~/Downloads
+    # Hash the file and move it to ~/Downloads.
     function ___get_pkg_complete () {
         [ -f "$1" ] || return 1;
         local name=${1##*/};
@@ -211,13 +253,13 @@ __get_pkg () {
         printf -v store_agent /private/var/folders/*/*/C/com.apple.appstoreagent/com.apple.appstore;
         printf "Will listen \033[4m%s\033[0m sec.\n" $(($countdown / 5));
 
-        # Reg hard link from /private/var/tmp
+        # Register a hard link from /private/var/tmp.
         ___get_pkg_serial_number "$store_agent";
 
-        # Infinite loop
+        # Infinite loop.
         while :; do
 
-            # Exit if all download complete
+            # Exit when all downloads are complete.
             [ $countdown -lt 0 -a ${#pkg[@]} == 0 ] && {
                 printf "Exit.\n";
                 break
@@ -225,26 +267,26 @@ __get_pkg () {
 
             [ $((countdown -= 1)) == 0 ] && printf "Listening \033[4mstop\033[0m.\n";
 
-            # Search download pkg
+            # Search for the downloaded package.
             ___get_pkg_serial_number "$store_agent";
 
-            # foreach pkg array
+            # Iterate over the package array.
             [ ${#pkg[@]} -gt 0 ] && for i in ${!pkg[@]}; do
-                # Alleady complete
+                # Already complete.
                 [ "${pkg[$i]%/*}" == "$tmp" ] && {
                     ___get_pkg_complete "${pkg[$i]}" &
                     unset pkg[$i];
                     continue
                 };
 
-                anchor=$tmp/${i}_${pkg[$i]##*/}; # Anchor file path
+                anchor=$tmp/${i}_${pkg[$i]##*/}; # Anchor file path.
 
-                # Add hard link
+                # Add a hard link.
                 [ -f "$anchor" ] || {
                     ln "${pkg[$i]}" "$anchor" && printf "Add \033[4m${pkg[i]##*/}\033[0m.\n";
                 };
 
-                # Download complete
+                # The download is complete.
                 [ -f "${pkg[$i]}" ] || {
                     unset pkg[$i];
                     ___get_pkg_complete "$anchor" &
@@ -261,33 +303,106 @@ __get_pkg () {
 
     } | _xlib_prefix "%F %T, GPKG, "
 
-    # wait all thread over
+    # Wait for all threads to finish.
     wait
 }
 
-### Wake on LAN ##Usage: wol [MAC_addr] [[broadcast_ipv4]] ##    e.g. #        wol aa:bb:cc:dd:ee:ff 10.0.0.255 ##
+### Wake on LAN
+### Usage: wol [OPTION]... TARGET
 _xlib_wol () {
-    [ "$1" ] || exit 1; # MAC address is empty
+    [ "$1" ] || exit 1; # MAC address is empty.
 
-    if [ ! "$2" ]; then
-        [[ $OSTYPE == darwin* ]] && {
-            route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-            :
-        } || route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
-        set -- "$1" "${route_ip%.*}.255"
+    source "$(__script_dir)/bash.xlib";
 
-    elif [ "$1" == "--all" ]; then
-        set --
+    # Load the [hosts] ini config into map0.
+    __load_ini hosts;
 
+    local i j mac_addr broadcast route_ip mac_arr=();
+    case $1 in
+        ###   -b, --broadcast=ADDRESS|ALIAS   broadcast ADDRESS for all targets
+        --broadcast|-b)
+            shift;
+            # Resolve the broadcast address from an IPv4 address or host alias.
+            for i in `__wol_addr "$1"`; do
+                _xlib_ip --test "$i" && { broadcast=$i; break; }
+            done
+            [ "$broadcast" ] || exit 1; # Cannot resolve the broadcast IPv4 address.
+            shift
+        ;;
+        ###   TARGET=ALIAS|HOSTIP   MAC address, hosts alias or IPv4 address
+        *)
+            # Default broadcast address: the same subnet as the default gateway.
+            [[ $OSTYPE == darwin* ]] && {
+                route_ip=`route -n get default | awk '/gateway/{print $2}'`;
+                :
+            } || route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
+            broadcast="${route_ip%.*}.255"
+        ;;
+    esac
+
+    [ "$1" ] || exit 1; # MAC address is empty.
+
+    # Resolve all MAC addresses from a MAC address, host alias or IPv4 address.
+    for i in "$@"; do
+        mac_addr=;
+        for j in `__wol_addr "$i"`; do
+            [[ ${j//-/:} == *:*:*:*:*:* ]] || continue;
+            mac_addr=true;
+            mac_arr[${#mac_arr[@]}]=$j;
+        done
+        [ "$mac_addr" ] || exit 1; # Cannot resolve the MAC address.
+    done
+
+    # Wake each MAC address.
+    for i in ${mac_arr[@]}; do
+        __wol "$i" "$broadcast";
+    done
+
+}
+
+# Print MAC addresses and IPv4 addresses for the [hosts] ini, from a MAC address,
+#   host alias or IPv4 address.  Read the ini config from HOME or the script path,
+#   and reverse lookup in /etc/hosts.
+# Usage: __wol_addr [STRING]
+__wol_addr () {
+    [ "$1" ] || return 1;
+    local i j k line;
+    # By MAC address or host alias.
+    line=`_map --get "$1"`;
+    line=${line:-$1};
+
+    # By IPv4 address.
+    if _xlib_ip --test "$1"; then
+        # Reverse lookup the host alias in map0.
+        if [ "$line" == "$1" ]; then
+            _map --keys;
+            for i in ${MAP2ARRAY[@]}; do
+                j=`_map --get "$i"`;
+                for k in ${j//|/ }; do
+                    [ "$k" == "$1" ] && { line=$j; break 2; }
+                done
+            done
+        fi
+
+        # Reverse lookup the host name in /etc/hosts, which the [hosts] command updates.
+        if [ "$line" == "$1" ]; then
+            for i in `awk -v ip="$1" '$1 == ip {for (n = 2; n <= NF; n++) print $n}' /etc/hosts`; do
+                j=`_map --get "$i"`;
+                [ "$j" ] && { line=$j; break; }
+            done
+        fi
     fi
 
-    # source "$(cd `dirname $0`; pwd)/bash.xlib";
+    # Print the MAC address and IPv4 address.
+    local addr IFS=$IFS"|";
+    addr=($line);
+    IFS=${IFS%|};
+    for i in ${addr[@]}; do
+        _xlib_ip --test "$i" && { printf "%s\n" "$i"; continue; }
+        [[ ${i//-/:} == *:*:*:*:*:* ]] && printf "%s\n" "$i"
+    done
 
-    # # get [setting]
-    # __load_ini sip_setting;
-
-    __wol "$@"
-
+    return 0
 }
 
 __wol () {
@@ -298,50 +413,54 @@ __wol () {
                 printf "${1//[:-]/}%.0s" {1..16};
             } | sed 's/../\\x&/g'
         ) | perl -ne 'use Socket; socket(S, AF_INET, SOCK_DGRAM, getprotobyname("udp")); setsockopt(S, SOL_SOCKET, SO_BROADCAST, 1); send(S, $_, 0, pack_sockaddr_in(9, inet_aton("'"$2"'"))); close S' || \
-            exit 1; # perl error
+            exit 1; # The perl command failed.
 
     elif which python >/dev/null; then
         python -c 'import socket; S=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); S.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1); S.sendto("".join(["F" * 12, "'"$1"'".replace(":", "").replace("-", "") * 16]).decode("hex"), ("'"$2"'", 9))' || \
-            exit 1; # python error
+            exit 1; # The python command failed.
 
     else
-        exit 1; # not support
+        exit 1; # Not supported.
 
     fi
 
 }
 
-### Remote tools ##Usage: remote [option] [args...] ##    -ed25519 [[user@]host] [[alias]]  Copy ed25519 public key to remote #    -tar [option] [[user@host:]target_path] [[user@host:]source_path] #                                  remote tar command #    -scp [pass_word] [command...] Auto scp with password ##
+### Remote tools
+### Usage: remote [OPTION]... [ARG]...
 _xlib_remote () {
     case $1 in
+        ###   -ed25519=HOST   copy the ed25519 public key to HOST; an optional ALIAS suffix may be given
         -ed25519)
             shift;
             __remote_ed25519 "$@"
         ;;
+        ###   -scp=PASSWORD COMMAND...   copy files over scp with PASSWORD
         -scp)
             shift;
             __remote_auto_scp "$@"
         ;;
+        ###   -tar=PATH   transfer PATH by tar, the first ARG is a tar option
         -tar)
             shift;
             __remote_tar "$@"
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-# for _xlib_remote
+# For _xlib_remote.
 __remote_ed25519 () {
-     [ "$1" ] || exit 1; # first args is empty
+     [ "$1" ] || exit 1; # First argument is empty.
     local ed25519_pub;
     [ -s ~/.ssh/id_ed25519$2.pub ] || ssh-keygen -t ed25519 -P "" -f ~/.ssh/id_ed25519$2;
     printf %s 'mkdir ~/.ssh 2>/dev/null;
 printf %s "'`cat ~/.ssh/id_ed25519$2.pub 2>/dev/null`'" >> ~/.ssh/authorized_keys;
 chmod 600 ~/.ssh/authorized_keys;
 chmod 700 ~/.ssh
-' | ssh $1 bash || exit 1; # Unknown Error
+' | ssh $1 bash || exit 1; # Unknown error.
 
     local host=${1#*@} user;
     [ "$host" == "$1" ] && user=${1%@*} || user=$USER;
@@ -355,7 +474,7 @@ chmod 700 ~/.ssh
     return 0
 }
 
-# for _xlib_remote
+# For _xlib_remote.
 __remote_auto_scp () {
     local password;
     password=$1;
@@ -381,26 +500,26 @@ __remote_auto_scp () {
 
     case $? in
         1)
-            exit 1; # Expect Error
+            exit 1; # Expect error.
         ;;
         2)
-            exit 1; # Time Out
+            exit 1; # Timed out.
         ;;
         3)
-            exit 1; # Password Error
+            exit 1; # Password error.
         ;;
         4)
-            exit 1; # File not found
+            exit 1; # File not found.
         ;;
         *)
-            exit 1; # Unknown Error
+            exit 1; # Unknown error.
         ;;
     esac
 }
 
 __remote_tar () {
-    [ "$1" ] || exit 1; # target url is empty
-    [ "$2" ] || exit 1; # source url is empty
+    [ "$1" ] || exit 1; # Target URL is empty.
+    [ "$2" ] || exit 1; # Source URL is empty.
     local option="$1" target_host target_dir source_host source_dir;
     shift;
 
@@ -441,10 +560,10 @@ __remote_tar () {
     case $option in
         *c*)
             if [ "$target_host" -a "$source_host" ]; then
-                # both
+                # Both sides are remote.
                 ___tar_c $source_host "${source_dir}" | ___tar_cat_i $target_host "$target_dir"
             elif [ "$target_host" ]; then
-                # local -> remote
+                # Local to remote.
                 [ -d "$source_dir" ] || exit 1; # source path not found.
                 {
                     [ "${option/P/}" == "$option" ] && {
@@ -454,37 +573,39 @@ __remote_tar () {
                     } || tar $option - "${source_dir}"
                 } | rcat $target_host "$target_dir";
             else
-                # remote -> local
+                # Remote to local.
                 ___tar_c $source_host "$source_dir" > "$target_dir";
             fi
         ;;
         *x*)
             if [ "$target_host" -a "$source_host" ]; then
-                # both
+                # Both sides are remote.
                 ___tar_cat_o $source_host "${source_dir}" | ___tar_x $target_host "$target_dir"
             elif [ "$target_host" ]; then
-                # local -> remote
+                # Local to remote.
                 [ -f "$source_dir" ] || exit 1; # source file not found.
                 cat "$source_dir" | ___tar_x $target_host "$target_dir"
             else
-                # remote -> local
+                # Remote to local.
                 cd "$target_dir";
                 ___tar_cat_o $source_host "$source_dir" | tar $option -;
                 cd "$OLDPWD"
             fi
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 
     return 0
 }
 
-### OS globle setting ##Usage: oset [option] [args...] ##    --version,    -v          Get OS version #    --allow,      -a          Allow all app install #    --allow-app,  -aa         Allow app run #    --hidden,     - [yes|no]  Hidden all privite file or directory #    --re-launch,  -rl         Reset LaunchPad #    --set-launch, -sl [rows] [cols] #                              Setting LaunchPad columes rows#    --uuid,       -u          Get uuid by username. default: [current]#    --sid,        -s          Get sid by username. default: [current]##
+### Operating system settings, macOS only
+### Usage: oset [OPTION]... [ARG]...
 _xlib_oset () {
-    [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
     case $1 in
+        ###   -v, --version   print the OS version
         --version|-v)
             which sw_vers >/dev/null 2>&1 && {
                 sw_vers | awk '{if(/ProductVersion/) {printf $2}; if(/BuildVersion/) print "." $2}';
@@ -492,24 +613,29 @@ _xlib_oset () {
             } || system_profiler SPSoftwareDataType | \
                 awk '/System Version/{gsub(/[()]/, "", $5); print $4 "." $5}'
         ;;
+        ###   -a, --allow   allow installation of all apps
         --allow|-a)
             sudo spctl --master-disable;
         ;;
+        ###   -aa, --allow-app=FILE   allow running the app bundle FILE
         --allow-app|-aa)
             shift;
-            [ -e "$1" ] || exit 1; # app file not set or found.
+            [ -e "$1" ] || exit 1; # App bundle not set or not found.
             sudo spctl --master-disable;
             sudo xattr -r -d com.apple.quarantine "$1"
         ;;
+        ###   -, --hidden={yes|no}   show or hide private files and directories
         --hidden|-)
             shift;
-            [ "$1" == "yes" -o "$1" == "no" ] || exit 1; # must select 'yes' or 'no'
+            [ "$1" == "yes" -o "$1" == "no" ] || exit 1; # The value must be 'yes' or 'no'.
             defaults write com.apple.finder AppleShowAllFiles $1;
         ;;
+        ###   -rl, --re-launch   reset LaunchPad
         --re-launch|-rl)
             defaults write com.apple.dock ResetLaunchPad -bool true;
             killall Dock
         ;;
+        ###   -sl, --set-launch=NUMBER   set the LaunchPad ROWS and COLUMNS
         --set-launch|-sl)
             shift;
             if [ "$2" ]; then
@@ -517,30 +643,35 @@ _xlib_oset () {
                 defaults write com.apple.dock springboard-columns -int $2
                 killall Dock
             elif [ "$1" ]; then
-                exit 1; # columns not set
+                exit 1; # Columns not set.
             else
                 defaults write com.apple.dock springboard-rows Default
                 defaults write com.apple.dock springboard-columns Default
                 killall Dock
             fi
         ;;
+        ###   -u, --uuid[=USER]   print the UUID of USER, default is the current user
         --uuid|-u)
             shift;
             [ "$1" ] || set "" $USER;
             dsmemberutil getuuid -U $1
         ;;
+        ###   -s, --sid[=USER]   print the SID of USER, default is the current user
         --sid|-s)
             shift;
             [ "$1" ] || set "" $USER;
             dsmemberutil getsid -U $1
         ;;
+        ###   -l, --lock-screen   lock the screen
         --lock-screen|-l)
             # Ctrl + Command + Q
             /System/Library/CoreServices/Menu\ Extras/User.menu/Contents/Resources/CGSession -suspend
         ;;
+        ###   --ms, --mobile-sync   open the MobileSync backup DIRECTORY
         --mobile-sync|--ms)
             open ~/Library/Application\ Support/MobileSync/Backup
         ;;
+        ###   --logout   log out
         --logout)
             # killall -u $USER;
             # kill -9 `ps -Axjc | awk /loginwindow/'{print $2}'`;
@@ -552,6 +683,7 @@ _xlib_oset () {
             end tell
             ' | osascript
         ;;
+        ###   --notify=STRING   display a notification
         --notify)
             shift;
             if [ "$3" ]; then
@@ -562,14 +694,17 @@ _xlib_oset () {
                 osascript -e 'display notification "'"$1"'" with title "Hi"'
             fi
         ;;
+        ###   --button-wait=STRING   display a dialog with a Yes button and wait
         --button-wait)
             shift;
             osascript -e 'display dialog "'"$1"'" buttons "Yes" with icon note'
         ;;
+        ###   --button-choose=STRING   display a dialog
         --button-choose)
             shift;
             osascript -e 'display dialog "'"$1"'"'
         ;;
+        ###   --set-time=STRING   set the system time
         --set-time)
             shift;
             if [ "$1" ]; then
@@ -590,81 +725,93 @@ _xlib_oset () {
         # Spotlight close
         # launchctl unload -w /System/Library/LaunchDaemons/com.apple.metadata.mds.plist
 
+        ###   --sleep   put the system to sleep
         --sleep)
             sudo osascript -e 'tell application "Finder" to sleep'
         ;;
+        ###   --list-users   list all users
         --list-users)
             dscl . -list /Users UniqueID
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### Certificate tools ##Usage: cert [option] [args...] ##    selfsign --host [cn] --email [e]    Create certificate for selfsign #    rsa   [[suffix]]                 Certificate for rsa ##
+### Certificate tools
+### Usage: cert {selfsign|rsa|ed25519} [OPTION]...
 _xlib_cert () {
     case $1 in
+        ###   selfsign   create a self-signed certificate
         selfsign)
             # nginx
             shift;
             local host email country="CN" state="BJ" city="BJ" company="ORG" section="dev" days=365;
             while [ "$2" ]; do
                 case $1 in
+                    ###   -cn, --host=HOST   set the common name (CN)
                     --host|-cn)
                         # Common Name (eg, YOUR name) []:                               /CN             ($IP / $hostname / $alias)
                         host="$2";
                         shift;
                         shift
                     ;;
+                    ###   -e, --email=STRING   set the email address
                     --email|-e)
                         # Email Address []:                                             /emailAddress   mail@example.com
                         email="$2";
                         shift;
                         shift
                     ;;
+                    ###   -c, --country=STRING   set the country name (C)
                     --country|-c)
                         # Country Name (2 letter code) [AU]:                            /C
                         country="$2";
                         shift;
                         shift
                     ;;
+                    ###   -st, --state=STRING   set the state or province name (ST)
                     --state|-st)
                         # State or Province Name (full name) [Some-State]:              /ST
                         state="$2";
                         shift;
                         shift
                     ;;
+                    ###   -l, --city=STRING   set the locality name (L)
                     --city|-l)
                         # Locality Name (eg, city) []:                                  /L
                         city="$2";
                         shift;
                         shift
                     ;;
+                    ###   -o, --company=STRING   set the organization name (O)
                     --company|-o)
                         # Organization Name (eg, company) [Internet Widgits Pty Ltd]:   /O
                         company="$2";
                         shift;
                         shift
                     ;;
+                    ###   -ou, --section=STRING   set the organizational unit name (OU)
                     --section|-ou)
                         # Organizational Unit Name (eg, section) []:                    /OU
                         section="$2";
                         shift;
                         shift
                     ;;
+                    ###   --days=NUMBER   set the number of days the certificate is valid
                     --days)
                         days="$2";
                         shift;
                         shift
                     ;;
                     *)
-                        exit 1; # invalid option
+                        exit 1; # Invalid option.
                     ;;
                 esac
             done
-            [ "$host" ] || exit 1; # hostname is empty!
-            [ "$email" ] || exit 1; # emailAddress is empty!
+            [ "$host" ] || exit 1; # Host name is empty.
+            [ "$email" ] || exit 1; # Email address is empty.
             local SUBJECT="/C=$country/ST=$state/L=$city/O=$company/OU=$section/CN=$host/emailAddress=$email" \
                 SERVER_CERT="./$host/fullchain.pem" \
                 SERVER_KEY="./$host/privkey.pem" \
@@ -674,37 +821,41 @@ _xlib_cert () {
 
             mkdir -p "$host";
 
-            # Create the CA
+            # Create the CA.
             openssl genrsa -out $CA_KEY 4096;
             openssl req -new -x509 -days $days -key $CA_KEY -out $CA_CERT -subj "$SUBJECT";
 
-            # Create the Server Key
+            # Create the server key.
             openssl genrsa -out $SERVER_KEY 4096;
 
-            # Create the Server CSR
+            # Create the server CSR.
             openssl req -new -key $SERVER_KEY -out $SERVER_CSR -subj "$SUBJECT";
 
-            # Self-sign the Server CSR
+            # Self-sign the server CSR.
             openssl x509 -req -days $days -in $SERVER_CSR -CA $CA_CERT -CAkey $CA_KEY -set_serial 01 -out $SERVER_CERT;
 
         ;;
+        ###   rsa[=SUFFIX]   create an RSA key pair, SUFFIX is optional
         rsa)
             shift;
             ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa$1;
         ;;
+        ###   ed25519[=SUFFIX]   create an ed25519 key pair, SUFFIX is optional
         ed25519)
             shift;
             ssh-keygen -t ed25519 -P "" -C "$USER@$HOSTNAME" -f ~/.ssh/id_ed25519$1;
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### Display device info
+### Display device driver info
+### Usage: drv [OPTION]
 _xlib_drv () {
     case $1 in
+        ###   -v, --info   print hardware info
         --info|-v)
             if [[ $OSTYPE == darwin* ]]; then
                 printf ";\n";
@@ -715,6 +866,7 @@ _xlib_drv () {
                 :
             fi
         ;;
+        ###   -l, --list   list loaded kernel extensions
         --list|-l)
             if [[ $OSTYPE == darwin* ]]; then
                 # /System/Library/Extensions /Library/Extensions
@@ -723,6 +875,7 @@ _xlib_drv () {
                 :
             fi
         ;;
+        ###   -r, --refresh   prune the kernel extension cache
         --refresh|-r)
             if [[ $OSTYPE == darwin* ]]; then
                 sudo kextcache -prune-staging
@@ -731,14 +884,15 @@ _xlib_drv () {
             fi
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### Print md5,sha1,sha256 checksums ##Usage: hash [file_path] ##
+### Print MD5, SHA-1, SHA-256 and SHA-512 checksums
+### Usage: hash [FILE]
 _xlib_hash () {
-    which openssl >/dev/null 2>&1 || exit 1; # openssl command not found
+    which openssl >/dev/null 2>&1 || exit 1; # The openssl command was not found.
     local h_code;
     for h_code in $(
         {
@@ -760,7 +914,8 @@ _xlib_hash () {
     done
 }
 
-### Volume info or edit ##    --wipes, -w  [path]   Wipes the free space on the volume #    --createinstallmedia, -im [device_path] #                          Create instatll media, by Install*.app
+### Volume info or edit
+### Usage: vol [OPTION]... [ARG]...
 _xlib_vol () {
     case $1 in
         # --encrypts-all|-eca)
@@ -773,19 +928,21 @@ _xlib_vol () {
         # --encrypts|-ec)
         #     __vol_list
         # ;;
+        ###   -w, --wipes=DIRECTORY   wipe the free space on the volume at DIRECTORY
         --wipes|-w)
             shift;
-            [ -d "$1" ] || exit 1; # Target path not found
+            [ -d "$1" ] || exit 1; # Target path not found.
             diskutil secureErase freespace 3 $1
         ;;
+        ###   -im, --createinstallmedia=DEVICE   create a bootable install media on DEVICE
         --createinstallmedia|-im)
             shift;
-            [ -d "$1" ] || exit 1; # target device not found
+            [ -d "$1" ] || exit 1; # Target device not found.
             [ -d "$2" ] || set -- "$1" "/Applications/Install";
             while read tmp; do
                 break;
             done < <(find "$2"*/ -iname "createinstallmedia" 2>/dev/null);
-            [ -f "$tmp" ] || exit 1; # install source not found
+            [ -f "$tmp" ] || exit 1; # Install source not found.
             [ -f "${tmp%Resources*}SharedSupport/InstallInfo.plist" ] || {
                 if [ -f "/macOS Install Data/InstallInfo.plist" ]; then
                     sudo mkdir -p "${tmp%Resources*}SharedSupport";
@@ -802,10 +959,10 @@ _xlib_vol () {
                     "${tmp%Resources*}Info.plist" | awk '{printf $0 " "};END{printf "\n"}'
             # sudo "$tmp" --volume "$1" --applicationpath "${tmp%/Contents*}" --nointeraction;
             sudo "$tmp" --volume "$1" --nointeraction;
-            touch "$1"/.metadata_never_index;
+            touch "/Volumes/Install "*/.metadata_never_index
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
@@ -833,18 +990,21 @@ _xlib_vol () {
 #     done < <(diskutil apfs list)
 # }
 
-### Directory tools ##Usage: dir [option] [args...] ##    --unhidden, -uh [dir_path]   No hidden directory #    --list-container-data-info, -lcdi #    --own           [dir_path]   Set directory owner #    --boot          [dir_path]   Rebuild boot file #    --count,    -c  [[dir_path]] Get file count #    --unique,   -u  [[dir_path]] Search for duplicate files##
+### Directory tools
+### Usage: dir [OPTION]... [ARG]...
 _xlib_dir () {
     case $1 in
+        ###   -uh, --unhidden=DIRECTORY   clear the hidden flag on all entries in DIRECTORY
         --unhidden|-uh)
             shift;
-            [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
-            [ -d "$1" ] || exit 1; # target not found or not directory
+            [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
+            [ -d "$1" ] || exit 1; # Target not found or not a directory.
             chflags nohidden "$1"/*;
             sudo spctl --master-disable;
         ;;
+        ###   -lcdi, --list-container-data-info   print container metadata
         --list-container-data-info|-lcdi)
-            # TODO OSTYPE?
+            # TODO: OSTYPE?
             local i;
             for i in ~/Library/Containers/*-*-????-*-*; do
                 printf '%s # %s\n' "$i" $(
@@ -852,9 +1012,10 @@ _xlib_dir () {
                 );
             done | sort -k 2
         ;;
+        ###   --own=DIRECTORY   set the owner of DIRECTORY to the second argument, default 'bin'
         --own)
             shift;
-            [ -d "$1" ] || exit 1; # directory not found
+            [ -d "$1" ] || exit 1; # Directory not found.
             local USER arg;
             USER=${2:-bin};
             # ${1:(-1)} == ${1:0-1}
@@ -863,29 +1024,32 @@ _xlib_dir () {
             sudo chmod -R 644 "$arg/*"
             sudo find "$arg" -type d -exec chmod 755 {} \;
         ;;
+        ###   --boot=DIRECTORY   rebuild the boot file in DIRECTORY
         --boot)
-            [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
+            [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
             shift;
-            [ -f "$1/com.apple.recovery.boot/kernelcache" ] || exit 1; # Boot file not found
+            [ -f "$1/com.apple.recovery.boot/kernelcache" ] || exit 1; # Boot file not found.
             sudo bless --folder "$1/com.apple.recovery.boot" --label "Recovery HD";
             # 426F6F74-0000-11AA-AA11-00306543ECAC
             # [ "${1##*/}" == "dmtest" -a "${2##*/}" == "BaseSystem.dmg" -a -d "$3" ] && "$2" ensureRecoveryPartition "$3" "$2" 0 0 "${2%.*}.chunklist"
         ;;
+        ###   -c, --count[=DIRECTORY]   count files in DIRECTORY, default is the current directory
         --count|-c)
             shift;
             [ "$1" ] && {
-                [ -d "$1" ] || exit 1; # target not found or not directory
+                [ -d "$1" ] || exit 1; # Target not found or not a directory.
                 :
             } || set -- \.;
             # ls -alR "$1" 2>/dev/null | grep -c '^-'
             find "$1" -type f | grep -c '\/'
         ;;
+        ###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY
         --unique|-u)
-            [[ $OSTYPE == darwin* ]] && exit 1; # Not support macOS (OS X)
+            [[ $OSTYPE == darwin* ]] && exit 1; # Not supported on macOS (OS X).
             shift;
             # TODO
             local i pi size path1 sum name1 temp tmp path_arr=() name_arr=() out=".#Trash";
-            touch "$out.log" || exit 1; # output error
+            touch "$out.log" || exit 1; # Output error.
             mkdir -p "$out";
             while read size path1; do
                 [ "$temp" == "$size" ] || {
@@ -895,12 +1059,12 @@ _xlib_dir () {
                         [ "$tmp" == "$sum" ] || {
                             [ ${#name_arr[@]} -gt 1 ] && {
 
-                                # save first file
+                                # Save the first file.
                                 unset name_arr[0];
                                 for pi in ${!name_arr[@]}; do
                                     pi="${name_arr[$pi]}";
                                     printf "$temp,MOVE ";
-                                    # move file to new file
+                                    # Move the file to the new file.
                                     if [ "$pi" == "${pi%/*}" ]; then
                                         mv -v "./$pi" "$out"
                                     else
@@ -912,7 +1076,7 @@ _xlib_dir () {
                                 printf "\n"
                             };
 
-                            # sync status
+                            # Sync status.
                             tmp="$sum";
                             name_arr=()
                         };
@@ -927,7 +1091,7 @@ _xlib_dir () {
                         printf "\n";
                     );
 
-                    # sync status
+                    # Sync status.
                     temp="$size";
                     path_arr=()
                 };
@@ -941,38 +1105,44 @@ _xlib_dir () {
 
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### Lock, Use '-h' for a description of the options #usage: %~n0 lock [option] [...]
+### Lock the screen
+### Usage: lock
 _xlib_lock () {
     :
 }
 
-### String manage ##Usage: str [option] ...##    --random,   -r   [count]      Print random string #    --lower,    -l   [str]        Convert lower case #    --upper,    -u   [str]        Convert upper case #    --tac            [[file]]#    --xmlvalue, -xv  [tag_name]   Get xml value #    --unascii,  -ua  [dir_path]   Print text not in ASCII char #    -lcs             [str1] [str2] #                                  Print longest common subsequence#    --dhms,     -t   [secends]    Format Unix timestamp to ??d ??h ??m ??s #    --passwd,   -pw  [passwd_str] Get password for stdin chpasswd -e ##
+### String management
+### Usage: str [OPTION]... [STRING]...
 _xlib_str () {
     case $1 in
+        ###   -l, --lower[=STRING]   convert STRING to lower case
         --lower|-l)
             shift;
             [ "$1" ] && {
                 tr "[:upper:]" "[:lower:]" <<< "$@"
             } || tr "[:upper:]" "[:lower:]";
         ;;
+        ###   -u, --upper[=STRING]   convert STRING to upper case
         --upper|-u)
             shift;
             [ "$1" ] && {
                 tr "[:lower:]" "[:upper:]" <<< "$@";
             } || tr "[:lower:]" "[:upper:]"
         ;;
+        ###   -xv, --xmlvalue=TAG   print the values of XML TAG
         --xmlvalue|-xv)
             shift;
-            [ "$1" ] || exit 1; # Args is empty
+            [ "$1" ] || exit 1; # Argument is empty.
             # grep -oP '(?<=\>)[\d\w_]+(?=\<\/'$1')' && return 0;
             perl -ne 'STDOUT->autoflush; print m/(?<=\>)[\d\w_]+(?=\<\/'"$1"')/g, "\n"' && return 0;
             return 1
         ;;
+        ###   --tac[=FILE]   print FILE in reverse
         --tac)
             shift;
             if which perl >/dev/null; then
@@ -988,19 +1158,20 @@ _xlib_str () {
             fi
         ;;
         # --xmltrim|-xt)
-        #     # -xt [text_file_path] Get xml without annotations
+        #     # -xt [text_file_path] Get XML without annotations.
         #     shift;
         #     awk '/<!--/{i++}/-->/{i--}!i&&!/-->/&&!/^$/' "$@"
         # ;;
         # --spacetrim|-st)
-        #     -st [text_file_path]  Replace all space to one space
+        #     -st [text_file_path]  Replace all spaces with one space.
         #     shift;
-        #     [ -f "$1" ] || exit 1; # File not found
+        #     [ -f "$1" ] || exit 1; # File not found.
         #     [ "`uname`" == "Linux" ] && {
         #         sed -r ':1;N;$!b1;s/\s+/ /g' "$1"
         #         :
         #     } || perl -i -pe 's/\s+/ /g' "$1"
         # ;;
+        ###   -ua, --unascii=PATH   print text that is not ASCII in PATH
         --unascii|-ua)
             shift;
             if [ -d "$1" ]; then
@@ -1011,20 +1182,24 @@ _xlib_str () {
                 grep '[^[:alnum:][:punct:][:space:]]'
             fi
         ;;
+        ###   -n, --now   print the current time as YYYYmmddHHMMSS
         --now|-n)
             date +%Y%m%d%H%M%S
         ;;
+        ###   -r, --random[=NUMBER]   print a random string of NUMBER characters
         --random|-r)
             shift;
             # local rand=`dd if=/dev/random bs=1 count=${1:-32} 2>/dev/null | base64 | tr -d '\n'`; # tr -d '\n' support linux
             openssl rand -base64 ${1:-9} | tr -d '\n' | sed "s/[^0-9A-Za-z]/${RANDOM:0:1}/g"
         ;;
-        --uuid|-u)
+        ###   -U, --uuid   print a UUID
+        --uuid|-U)
             uuidgen
         ;;
+        ###   -t, --dhms=SECONDS   format SECONDS as Nd Nh Nm Ns
         --dhms|-t)
             shift;
-            _xlib_inum $1 || exit 1; # Not number
+            _xlib_inum $1 || exit 1; # Not a number.
             local out=$(($1 % 60))s;
             [ $1 -ge 60 ] && {
                 out=$(($1 % 3600 / 60))m\ $out;
@@ -1035,25 +1210,28 @@ _xlib_str () {
             };
             printf "$out\n"
         ;;
+        ###   -pw, --passwd=STRING   print the crypt hash of STRING
         --passwd|-pw)
             shift;
-            which openssl >/dev/null 2>&1 || exit 1; # openssl command not found
-            [ "$1" ] || exit 1; # Args is empty
+            which openssl >/dev/null 2>&1 || exit 1; # The openssl command was not found.
+            [ "$1" ] || exit 1; # Argument is empty.
             openssl passwd -1 "$1"
         ;;
+        ###   -lcs=STRING STRING   print the longest common subsequence
         -lcs)
-            source "$(cd `dirname $0`; pwd)/bash.xlib";
+            source "$(__script_dir)/bash.xlib";
             _lcs "$2" "$3"
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-### show cpu times.
+### Show CPU times
+### Usage: cpu
 _xlib_cpu () {
-    [[ $OSTYPE == darwin* ]] && exit 1; # Not support macOS (OS X)
+    [[ $OSTYPE == darwin* ]] && exit 1; # Not supported on macOS (OS X).
     local REPLY;
     while true; do
         read < /proc/stat; printf "$REPLY\n";
@@ -1062,46 +1240,32 @@ _xlib_cpu () {
         awk '{printf "%s, %5.1f%\n", strftime("%F %T"), (1 - ($5 - idle) / ($1+$2+$3+$4+$5+$6+$7 - totel)) * 100; idle=$5; totel=$1+$2+$3+$4+$5+$6+$7;}'
 }
 
-### Show/find IPv4 ##Usage: ip [option] [args...] ##    --list, -l            Show IPv4 #    --find, -f [mac_addr] Search IPv4 by MAC or Host name, #                          support alias, see lib hosts #    --test, -t [str]      Test string is ipv4 ##
+### Show or find IPv4
+### Usage: ip [OPTION]... [ARG]...
 _xlib_ip () {
+    type __ipv4_test >/dev/null 2>&1 || source "$(__script_dir)/bash.xlib";
     case $1 in
+        ###   -l, --list   print the local IPv4 addresses
         --list|-l)
-            # netstat -rn | grep "default"
-            local route_ip;
-            [[ $OSTYPE == darwin* ]] && {
-                route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-                ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
-                :
-            } || {
-                route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
-                ip addr | awk '/inet '${route_ip%.*}'\.[0-9]+/{print gensub(/\/.*/, "", "", $2)}'
-            }
+            __ipv4_list
         ;;
+        ###   -f, --find=MAC|ALIAS   search for IPv4 by MAC address or hosts alias
         --find|-f)
             shift;
-            source "$(cd `dirname $0`; pwd)/bash.xlib";
+            source "$(__script_dir)/bash.xlib";
             __ip_find "$@"
         ;;
+        ###   -t, --test=STRING   test whether STRING is an IPv4 address
         --test|-t)
             shift;
-            [ "$1" ] || return 1;
-            [ ${#1} -gt 15 ] && return 1;
-            # command test
-            [ "${1:0:1}" == "-" ] && return 1;
-            [[ $1 != *[^.0-9]* && $1 == [1-9]*[0-9] && $1 != *..* ]] || return 1;
-            local a IFS=$IFS".";
-            a=($1);
-            [ ${#a[@]} == 4 ] || return 1;
-            for a in ${a[@]}; do
-                [ $a -gt 255 ] && return 1;
-            done
-            return 0
+            __ipv4_test "$@"
         ;;
-        # convert CIDR Prefix (e.g. 1.1.1.0/24) to Subnet Mask (e.g. 1.1.1.0 255.255.255.0)
-        # see https://doc.m0n0.ch/quickstartpc/intro-CIDR.html
+        # Convert a CIDR prefix (e.g., 1.1.1.0/24) to a subnet mask (e.g., 1.1.1.0 255.255.255.0).
+        # See https://doc.m0n0.ch/quickstartpc/intro-CIDR.html.
+        ###   -c2s, --cidr2subnet=CIDR   convert CIDR to a subnet mask
         --cidr2subnet|-c2s)
             shift;
-            [ "$1" ] || exit 1; # arg is empty
+            [ "$1" ] || exit 1; # Argument is empty.
             set ${1/\// };
 
             local submask i=0 octets=$(($2 / 8)) \
@@ -1122,10 +1286,11 @@ _xlib_ip () {
             done
             printf "$1 ${submask:1}"
         ;;
-        # convert Subnet Mask (e.g. 1.1.1.0 255.255.255.0) to CIDR Prefix (e.g. 1.1.1.0/24)
+        # Convert a subnet mask (e.g., 1.1.1.0 255.255.255.0) to a CIDR prefix (e.g., 1.1.1.0/24).
+        ###   -s2c, --subnet2cidr=ADDRESS MASK   convert a subnet mask to CIDR
         --subnet2cidr|-s2c)
             shift;
-            [ "$2" ] || exit 1; # arg is empty
+            [ "$2" ] || exit 1; # Argument is empty.
 
             function _exponent() {
                 local base=$1 power=2 exponent=0;
@@ -1143,16 +1308,16 @@ _xlib_ip () {
             printf $1/$prefix
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
 
-# for _xlib_ip
+# For _xlib_ip.
 __ip_find () {
-    [ "$1" ] || exit 1; # MAC address or Host name is empty
+    [ "$1" ] || exit 1; # MAC address or host name is empty.
 
-    # Clear arp cache
+    # Clear the ARP cache.
     [[ $OSTYPE == darwin* ]] && {
         sudo arp -ad >/dev/null 2>&1 || return 1;
         :
@@ -1160,15 +1325,15 @@ __ip_find () {
 
     local i j max_len=0 r key mac range route_ip;
 
-    # get [setting]
+    # Get [setting].
     __load_ini sip_setting;
     route_ip=`_map --get route`;
-    # arr=(${var//,/ }) only support bash
+    # arr=(${var//,/ }) is only supported by bash.
     route_ip=(${route_ip//,/ } `[[ $OSTYPE == darwin* ]] && {
         netstat -nr | awk '/^default[[:space:]]/ && ! /tun|tap/ && /([0-9]+\.){3,}/{print $2}';
         :
     } || ip route | awk '/^default/{print $3}'`);
-    # trim
+    # Trim the host part of the address.
     for i in ${!route_ip[@]}; do
         _set --add "${route_ip[$i]%.*}" >/dev/null || unset route_ip[$i];
     done
@@ -1184,21 +1349,21 @@ __ip_find () {
     local arg mac_addr mac_addr_arr=() tmp;
     for arg in "$@"; do
 
-        # get from map
+        # Get from the map.
         mac_addr=`_map --get $arg`;
         mac_addr=${mac_addr:-$arg};
 
-        # replace separator, skip type like: a-bc
+        # Replace the separator; skip a value like 'a-bc'.
         [[ $mac_addr == *-*-*-*-*-* ]] && mac_addr=${mac_addr//-/:};
 
         [[ $mac_addr == *:*:*:*:*:* ]] && {
-            # cache max variable length
+            # Cache the maximum variable length.
             [ ${#arg} -gt $max_len ] && max_len=${#arg};
-            # convert lowercase
+            # Convert to lowercase.
             mac_addr=`_xlib_str --lower $mac_addr`;
 
             if [[ $OSTYPE == darwin* ]]; then
-                # trim ^0, 0a:0b:1c:1d:1e:1f -> a:b:1c:1d:1e:1f
+                # Trim the leading zero: 0a:0b:1c:1d:1e:1f -> a:b:1c:1d:1e:1f.
                 tmp="";
                 for i in ${mac_addr//|/ }; do
                     [[ $i == *:*:*:*:*:* ]] && \
@@ -1210,14 +1375,14 @@ __ip_find () {
                 mac_addr=$tmp;
             fi
 
-            # add prefix
+            # Add the prefix.
             mac_addr_arr[${#mac_addr_arr[@]}]=$arg@$mac_addr;
         }
     done
 
     [ ${#mac_addr_arr[@]} == 0 ] && return 0;
 
-    # for offset
+    # For the offset.
     max_len=$((max_len / 5 * 5 + 5));
 
     # fork: Resource temporarily unavailable
@@ -1226,40 +1391,40 @@ __ip_find () {
         ping -c 2 -t 2 $1 >/dev/null 2>&1;
         j=`arp $1 2>/dev/null`;
         for mac_addr in ${mac_addr_arr[@]}; do
-            # cache key
+            # Cache the key.
             key=${mac_addr%%@*};
-            # split arr with '|'
+            # Split the array with '|'.
             mac_addr=(${mac_addr//[@|]/ });
             unset mac_addr[0];
             for i in ${mac_addr[@]}; do
                 [[ $j == *$i* ]] && printf "%-${max_len}s$1\n" $key
-                # Like nbtstat
+                # Like nbtstat.
                 # [[ `smbutil status $1 2>/dev/null` == *$i* ]] && printf $1
             done
         done
     } 2>/dev/null;
 
-    # init thread valve
+    # Initialize the thread valve.
     _thread_valve --init 32;
 
     for r in ${route_ip[@]}; do
         for i in `seq ${range/-/ }`; do
             j=true;
             for e in ${exclude_ip[@]}; do [ "${r%.*}.$i" == "$e" ] && j=false; done
-            # get thread
+            # Get a thread.
             $j && _thread_valve --run __match_mac ${r%.*}.$i
         done
     done
 
-    # destroy thread valve
+    # Destroy the thread valve.
     _thread_valve --destroy;
 
-    # print ipv4 for MAC address not catch
+    # Print an IPv4 address for each unmatched MAC address.
     for mac_addr in ${mac_addr_arr[@]}; do
         [ "${mac_addr/@/}" == "$mac_addr" -o "${mac_addr/[0-9].[0-9]*.*[0-9].[0-9]/}" == "$mac_addr" ] && continue;
-        # cache key
+        # Cache the key.
         key=${mac_addr%%@*};
-        # split arr with '|'
+        # Split the array with '|'.
         mac_addr=(${mac_addr//[@|]/ });
         unset mac_addr[0];
         for i in ${mac_addr[@]}; do
@@ -1267,7 +1432,7 @@ __ip_find () {
         done
     done
 
-    # clear arp cache
+    # Clear the ARP cache.
     [[ $OSTYPE == darwin* ]] && {
         sudo arp -ad >/dev/null 2>&1 || return 1;
         :
@@ -1288,30 +1453,35 @@ __ip_find () {
 # '
 # }
 
-### Update hosts by ini #    will read ini config from HOME or script path. #    ini file context like: # #[hosts] #abc.org=01-12-23-34-45-56 #lib-233=67-78-89-9a-ab-bc #www.a.com=192.168.1.1 ##
+### Update hosts from the ini config
+### Usage: hosts
+### Read the ini config from HOME or the script path, for example:
+###   [hosts]
+###   abc.org=01-12-23-34-45-56
+###   www.a.com=192.168.1.1
 _xlib_hosts () {
-    source "$(cd `dirname $0`; pwd)/bash.xlib";
+    source "$(__script_dir)/bash.xlib";
 
-    # load ini in map1
-    __load_ini hosts 1 || exit 1; # Not found ini configure
+    # Load the ini into map1.
+    __load_ini hosts 1 || exit 1; # The ini config was not found.
 
-    # get map1 key array in MAP2ARRAY
+    # Get the map1 key array into MAP2ARRAY.
     _map 1 --keys;
     local i j k line host_new lf;
     printf -v lf "\n";
 
     while read line; do
-        # override mac address in map1, if value not ipv4
+        # Override the MAC address in map1 when the value is not an IPv4 address.
         _xlib_ip --test "$(_map 1 --get ${line%% *})" || {
             _map 1 --put $line >/dev/null;
             printf "%s\n" "$line"
         }
     done < <(_xlib_ip --find ${MAP2ARRAY[@]});
 
-    # clear map0, sip command use it before
+    # Clear map0, which the sip command used before.
     _map --clear;
 
-    # get map1 key value in MAP2ARRAY
+    # Get the map1 key-value array into MAP2ARRAY.
     _map 1 --arr || exit 1; # Unknown error
 
     for ((i=0; i<${#MAP2ARRAY[@]}; i+=2)); do
@@ -1330,7 +1500,7 @@ _xlib_hosts () {
         host_new+="$line$lf";
     done < <(cat /etc/hosts);
 
-    # empty array
+    # Empty the array.
     _map --arr || unset MAP2ARRAY;
 
     for ((i=0; i<${#MAP2ARRAY[@]}; i+=2)); do
@@ -1344,7 +1514,7 @@ _xlib_hosts () {
 # # Test mac address
 # __imac () {
 #     [ "$1" ] || return 1;
-#     # command test
+#     # Skip an option.
 #     [ "${1:0:1}" == "-" ] && return 1;
 #     [[ $1 != *[^-:0-9a-fA-F]* && $1 != *--* && $1 != *::* && $1 == [0-9a-fA-F]*[0-9a-fA-F] && $1 != *[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]* ]] || return 1
 #     local a IFS=$IFS":-";
@@ -1353,17 +1523,19 @@ _xlib_hosts () {
 #     return 0
 # }
 
-### Connect vnc server ##Usage: vnc [ipv4][:[port]] ##server listening port 5900 ##
+### Connect to a VNC server
+### Usage: vnc ADDRESS[:PORT]
 _xlib_vnc () {
-    [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
-    _xlib_ip --test $1 || exit 1; # Args not a ipv4
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
+    _xlib_ip --test $1 || exit 1; # Argument is not an IPv4 address.
     open vnc://$1;
     return 0
 }
 
-### Start a disposable http server ##Usage: httpd [port] [[file_path]]
+### Start a disposable HTTP server
+### Usage: httpd PORT [FILE]
 _xlib_httpd () {
-    _xlib_inum $1 || exit 1; # arg not a port
+    _xlib_inum $1 || exit 1; # Argument is not a port.
     if [ -s "$2" ]; then
         {
             printf "HTTP/1.1 200 OK\n\n";
@@ -1375,63 +1547,72 @@ _xlib_httpd () {
     fi
 }
 
-### Test str is num ##Usage: inum [str] ##
+### Test whether STRING is a number
+### Usage: inum STRING
 _xlib_inum () {
     [ "$1" ] || return 2;
     [[ $1 != *[^0-9]* && $1 != 0[0-9]* ]] || return 1;
     return 0
 }
 
-### Tag prefix each line, support `date` format ##Usage: [command] | prefix [strftime format] ##
+### Tag each line with a prefix, supporting the date format
+### Usage: COMMAND | prefix [STRFTIME]
 _xlib_prefix () {
-    [ "$1" ] || exit 1; # Args is empty
-    source "$(cd `dirname $0`; pwd)/bash.xlib";
+    [ "$1" ] || exit 1; # Argument is empty.
+    source "$(__script_dir)/bash.xlib";
     _prefix "$@"
 }
 
-### Plist editer ##Usage: plist [option] [path...] ##    --xml,    -x [plist_path]   print plist as xml format #    --json,   -j [plist_path]   print plist as xml format #    --binary, -b [plist_path]   serialize plist to stdout #    --load       [plist_path]   load plist #    --unload     [plist_path]   unload plist ##
+### Plist editor
+### Usage: plist [OPTION]... FILE
 _xlib_plist () {
-    [[ $OSTYPE == darwin* ]] || exit 1; # Only support macOS (OS X)
-    # plutil defaults /usr/libexec/PlistBuddy
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
+    # Tools: plutil, defaults, /usr/libexec/PlistBuddy.
     which plutil >/dev/null 2>&1 || xcode-select --install 2>/dev/null
-    [ $# -lt 2 ] && exit 1; # invalid option
-    [ "${2##*.}" == "plist" ] || exit 1; # file format not support
+    [ $# -lt 2 ] && exit 1; # Invalid option.
+    [ "${2##*.}" == "plist" ] || exit 1; # File format not supported.
     case $1 in
+        ###   -g, --get=FILE KEY   print the value of KEY in the plist FILE
         --get|-g)
             shift;
-            [ -f "$1" ] || exit 1; # file not exist
-            [ "$2" ] || exit 1; # key not exist
+            [ -f "$1" ] || exit 1; # File does not exist.
+            [ "$2" ] || exit 1; # Key does not exist.
             # /usr/libexec/PlistBuddy -c "Print :$2" "$1"
             defaults read "$1" "$2"
         ;;
+        ###   -x, --xml=FILE   print the plist FILE as XML
         --xml|-x)
             shift;
-            [ -f "$1" ] || exit 1; # file not exist
-            plutil -convert xml1 "$1" -o - || exit 1; # plutil error
+            [ -f "$1" ] || exit 1; # File does not exist.
+            plutil -convert xml1 "$1" -o - || exit 1; # The plutil command failed.
         ;;
+        ###   -j, --json=FILE   print the plist FILE as JSON
         --json|-j)
             shift;
-            [ -f "$1" ] || exit 1; # file not exist
-            plutil -convert json -r "$1" -o - || exit 1; # plutil error
+            [ -f "$1" ] || exit 1; # File does not exist.
+            plutil -convert json -r "$1" -o - || exit 1; # The plutil command failed.
             printf "\n"
         ;;
+        ###   -b, --binary=FILE   serialize the plist FILE to stdout
         --binary|-b)
             shift;
-            [ -f "$1" ] && exit 1; # file aleady exist
-            sudo plutil -convert binary1 -o "$1" - || exit 1; # plutil error
+            [ -f "$1" ] && exit 1; # File already exists.
+            sudo plutil -convert binary1 -o "$1" - || exit 1; # The plutil command failed.
         ;;
+        ###   --load=FILE   load the launchd plist FILE
         --load)
             shift;
-            [ -f "$1" ] || exit 1; # file not exist
+            [ -f "$1" ] || exit 1; # File does not exist.
             sudo launchctl load -wF "$1"
         ;;
+        ###   --unload=FILE   unload the launchd plist FILE
         --unload)
             shift;
-            [ -f "$1" ] || exit 1; # file not exist
+            [ -f "$1" ] || exit 1; # File does not exist.
             sudo launchctl unload -w "$1"
         ;;
         *)
-            exit 1; # invalid option
+            exit 1; # Invalid option.
         ;;
     esac
 }
@@ -1441,30 +1622,45 @@ _xlib_plist () {
 #     printf $(( (`date +%s` - `stat -f "%a" "$1"`) / 60 / 60 ))
 # }
 
-# load .*.ini config
-__load_ini () {
-    [ "$1" ] || return 1;
-    local line is_catch=false;
-    while read line; do
-        [ "$line" == "" ] && continue;
-        if [ "${line/=/}" == "$line" ]; then
-            [ "$line" == "[$1]" ] && is_catch=true || is_catch=false;
-        elif $is_catch; then
-            _map $2 --put ${line%%=*} ${line#*=} >/dev/null
-        fi
-    done < <(cat ${0%/*}/.*.ini ~/.*.ini 2>/dev/null | awk -F \; 'gsub(/\r|\\$/, ""); gsub(/\\/, "\\\\"); {print $1}' | uniq);
-
-    # # read environment variable
-    # while read line; do
-    #     [ "$line" == "" -o "${line/=/}" == "$line" ] && continue;
-    #     _xlib_ip --test ${line#*=} || {
-    #         __imac ${line#*=} || continue
-    #     };
-    #     _map $2 --put "${line%%=*}" "${line#*=}" >/dev/null;
-    # done < <(set);
-
-   [ `_map $2 --size` == 0 ] && return 1;
-   return 0
+### Shell completion, auto-generated from annotations
+### Usage: comp [OPTION]...
+_xlib_comp () {
+    source "$(__script_dir)/comp.xlib";
+    case $1 in
+        ###   -b, --bash   print the bash completion script
+        --bash|-b)
+            shift;
+            __comp_bash "$@"
+        ;;
+        ###   -z, --zsh   print the zsh completion script
+        --zsh|-z)
+            shift;
+            __comp_zsh "$@"
+        ;;
+        ###   -i, --install[=SHELL]   install completion to HOME, default is the current shell
+        --install|-i)
+            shift;
+            __comp_install "$@" || exit 1; # Completion installation failed.
+        ;;
+        ###   -v, --value=KIND   print the candidates of KIND
+        --value|-v)
+            shift;
+            __comp_value "$@"
+        ;;
+        ###   -l, --list   print the parsed completion metadata
+        --list|-l)
+            shift;
+            __comp_scan | tr ';' '\t'
+        ;;
+        ###   -c, --check   check annotation and print warnings
+        --check|-c)
+            shift;
+            __comp_check || exit 1 # Annotation warning found.
+        ;;
+        *)
+            exit 1; # Invalid option.
+        ;;
+    esac
 }
 
 # # args path size(MB)
@@ -1494,22 +1690,22 @@ __load_ini () {
 #                   Framework                   #
 # # # # # # # # # # # # # # # # # # # # # # # # #
 
-# Print Error info
+# Print error info.
 _func_err () {
     [[ "$4$6" == exit_${0##*/}* ]] && {
         # local err=`awk 'NR=='$2'{print}' "$0"`;
         local err=`sed -n $2p "$0"`
-        # Print line text after '#'
+        # Print the line text after '#'.
         printf "\033[31mError:${err##*#} \033[33m($0:$2)\033[0m\n" >&2;
         exit $(($5 % 256))
     };
 
-    # WARRAN: 0 <= $? <= 255, return 256: $? = 0
+    # WARNING: 0 <= $? <= 255; return 256 gives $? = 0.
     [ "$4" == "return" ] && exit $(($5 % 256));
 
-    # Get script line
+    # Get the script line.
     [ $1 == 127 ] && {
-        # No function found
+        # No function found.
         printf "\033[31mError: No function found \033[0m\n" >&2;
         exit 1
     };
@@ -1517,73 +1713,96 @@ _func_err () {
     exit 0
 }
 
-# Show function info
-_func_annotation () {
-    local i j k OLDIFS IFS=$IFS\({;
-    # Cache IFS
-    OLDIFS=$IFS;
 
+# Show the function info.
+_func_annotation () {
+    source "$(__script_dir)/comp.xlib";
+    local kind cmd key text last= found=;
+    local -a cmd_lines=() opt_lines=();
     if [ "$1" ]; then
-        # show select
-        while read i j; do
-            # Make array splite with #
-            [ "$i" == "###" ] && {
-                IFS=#;
-                k=($j);
-                # Reset IFS
-                IFS=$OLDIFS
-            };
-            # At target func name
-            [ "$k" -a "$i" == "_${0##*/}_$1" ] && {
-                # Print all annotation
-                for i in ${!k[@]}; do
-                    printf "${k[$i]}\n";
-                done;
-                return 0
-            };
-            # Reset var
-            [[ "$i" == _${0##*/}* ]] && [ "$j" == ")" ] && unset k;
-        done < "$0"; # Scan this script
-        return 1
+        # Show one command.
+        while IFS=$'\t' read -r kind cmd key text; do
+            [ "$cmd" == "$1" ] || continue;
+            found=true;
+            case $kind in
+                O) opt_lines[${#opt_lines[@]}]="$text";;
+                *) cmd_lines[${#cmd_lines[@]}]="$text";;
+            esac
+        done < <(__annot_scan);
+        [ "$found" ] || return 1;
+        # split the command annotation around the Usage line
+        local -a pre_usage=() post_usage=();
+        local usage_line= seen_usage=;
+        for text in "${cmd_lines[@]}"; do
+            case $text in
+                Usage:*)
+                    seen_usage=true;
+                    usage_line=$text
+                ;;
+                *)
+                    if [ "$seen_usage" ]; then
+                        post_usage[${#post_usage[@]}]="$text"
+                    else
+                        pre_usage[${#pre_usage[@]}]="$text"
+                    fi
+                ;;
+            esac
+        done
+        [ ${#pre_usage[@]} -gt 0 ] && printf "%s\n" "${pre_usage[@]}";
+        [ "$seen_usage" ] && printf "\n%s\n\n" "$usage_line";
+        [ ${#post_usage[@]} -gt 0 ] && printf "%s\n" "${post_usage[@]}";
+        [ ${#opt_lines[@]} -gt 0 ] && {
+            [ ${#post_usage[@]} -gt 0 ] && printf "\n";
+            __annot_print "${opt_lines[@]}"
+        };
+        if [ ${#post_usage[@]} -gt 0 ] || [ ${#opt_lines[@]} -gt 0 ] || [ ! "$seen_usage" ]; then
+            printf "\n";
+        fi
+        return 0
 
     else
-        # show all
-        while read i j; do
-            # Cache intro
-            [ "$i" == "###" ] && k=${j%%#*};
-            # At func name
-            [ "${i%_*}" == "_${0##*/}" -a "$j" == ")" ] && {
-                # Left aligned at 15 char
-                printf "%-15s%s\n" ${i##*_} "$k";
-                # Clear var
-                unset k
-            };
-        done < "$0"; # Scan this script
+        # Show all commands; the first line of each command annotation is the brief.
+        while IFS=$'\t' read -r kind cmd key text; do
+            [ "$kind" == "C" ] || continue;
+            [ "$cmd" == "$last" ] && continue;
+            last=$cmd;
+            # Left aligned at 15 characters.
+            printf "%-15s%s\n" "$cmd" "$text";
+        done < <(__annot_scan)
     fi
 
 }
 
-# Cache exit
+# Cache and exit.
 trap '_func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #                   Framework                   #
 #################################################
 
-# Test if help
+# Test for a help option.
 [[ ! "$1" || "$1" == "-h" || "$1" == "--help" ]] && {
     _func_annotation | sort;
     exit 0
 } || [[ "$2" == "-h" || "$2" == "--help" ]] && {
-    # Test if help
+    # Test for a help option.
     _func_annotation $1 || printf "\033[31mError: No function found \033[0m\n" >&2;
     exit $?
 };
 
-# $*, "$*", $@ can not keep $#, only "$@" can save native structural
+# $*, "$*" and $@ cannot preserve $#; only "$@" preserves the native structure.
+
+# Normalize [--option=value] into [--option] [value]
+args=();
+for i in "$@"; do
+    case $i in
+        -*=*) args[${#args[@]}]="${i%%=*}"; args[${#args[@]}]="${i#*=}";;
+        *)    args[${#args[@]}]="$i";;
+    esac
+done
 
 # main
-_${0##*/}_"$@"
+_${0##*/}_"${args[@]}"
 
 # hdiutil attach *.dmg
 # hdiutil detach *.dmg

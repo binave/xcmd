@@ -13,22 +13,22 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-# variable map
+# Variable map.
 #   env:
 #       VARIABLE_MAP*_PREFIX_*
 #
 # Usage: __variable_map [[pool]] [option] [arguments]
 #
-# option:
-#    --put     [key] [value]      put key value in map
-#    --append  [key] [value]      append value by key in map
-#    --incrby  [key] [integer]    increment by key (atomic integer)
-#    --get     [key]              print value by key
-#    --remove  [key]              remove value by key
-#    --size                       get map size
-#    --clear                      clear map
-#    --keys    [[key's prefix]]   list keys by po*l and key's pr*fix
-#    --2keys   [[key's prefix]]   list pool\*keys by po*l and key's pr*fix
+# Options:
+#    --put     [key] [value]      put the key and value in the map.
+#    --append  [key] [value]      append the value to the value for KEY in the map.
+#    --incrby  [key] [integer]    increment the value for KEY by INTEGER (atomic).
+#    --get     [key]              print the value for KEY.
+#    --remove  [key]              remove the value for KEY.
+#    --size                       print the map size.
+#    --clear                      clear the map.
+#    --keys    [[key's prefix]]   list keys filtered by pool and key prefix.
+#    --2keys   [[key's prefix]]   list pool*key pairs filtered by pool and key prefix.
 __variable_map () {
     [ "$1" ] || return 1;
     __vmap_encode() {

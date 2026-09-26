@@ -13,8 +13,8 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-[ -e "$1" ] || { printf "target file '$1' not exist\n" >&2; exit 1; }
-which qrencode >/dev/null 2>/dev/null || { printf "'qrencode' command not found or not in '\$PATH'\n" >&2; exit 1; }
+[ -e "$1" ] || { printf "target file '$1' does not exist\n" >&2; exit 1; }
+which qrencode >/dev/null 2>/dev/null || { printf "The 'qrencode' command was not found or is not in '\$PATH'\n" >&2; exit 1; }
 
 get_current_rows() {
     set -- $(stty size)
@@ -25,12 +25,12 @@ get_current_rows() {
 all_ascii_qr_rows=(`seq 29 4 185`) # ascii_qr_cols_by_version[$version - 1]=$((${all_ascii_qr_rows[$version - 1]} * 2))
 
 # for i in {2..40}; do cat "$1" | gzip | base64 | while read l; do [ $((++c % $i)) == 1 ] && { printf "$n" | qrencode -o - -t ascii | awk 'END{print NR, length($0)}' || break; unset n; }; n="$n$l\n"; done | awk -v i=$i 'BEGIN{m=0};{t=strtonum($1);if(t > m) m = t}END{print i "," m}'; done
-# base64 rows:  01 02 03 04 05 06 07 08 09  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38
-   max_qr_rows=(41 57 65 69 77 85 89 93 97 101 105 113 117 117 121 125 129 133 137 141 141 145 149 153 153 157 161 161 165 169 169 173 173 177 181 181 185 185) # 76/64 same for base64 & openssl base & certutil.exe -decode
+# Base64 rows:  01 02 03 04 05 06 07 08 09  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38
+   max_qr_rows=(41 57 65 69 77 85 89 93 97 101 105 113 117 117 121 125 129 133 137 141 141 145 149 153 153 157 161 161 165 169 169 173 173 177 181 181 185 185) # 76/64 is the same for base64, openssl base and certutil.exe -decode.
 
 current_rows=`get_current_rows`;
 [ $current_rows -lt $((${max_qr_rows[0]} + 4)) ] && {
-    printf "window is too small\n" >&2
+    printf "The window is too small\n" >&2
     exit 1
 }
 
@@ -57,7 +57,7 @@ done
 
 if [ "$step_rows" ]; then
     [ $step_rows -gt $default_step ] && {
-        printf "window is too small to can not use step_rows: '$step_rows'\n" >&2;
+        printf "The window is too small; cannot use step_rows: '$step_rows'\n" >&2;
         exit 1
     }
 else
@@ -70,7 +70,7 @@ if [ -f "$input_path" ]; then
 elif [ -d "$input_path" ]; then
     tar -czf - "$input_path"
 else
-    printf "unknown input type '$input_path'.\n" >&2;
+    printf "Unknown input type '$input_path'.\n" >&2;
     exit 1
 
 fi | base64 > "$base64_tmp_file";
@@ -81,7 +81,7 @@ base64_sha1=$(sha1sum "$base64_tmp_file") max_nr=$(grep -c '^[0-9A-Za-z+/=]\+$' 
 qr_count=$((max_nr / step_rows + 1)); [ $((max_nr % step_rows)) == 0 ] && qr_count=$((qr_count - 1))
 
 begin_timestamp=$(date +%s)
-# header
+# Header.
 printf "# begin ${base64_sha1%% *} $input_path\nbegin_timestamp=$begin_timestamp,\nsleep_sec=$sleep_sec,\nstep_rows=$step_rows,\nqr_count=$qr_count,\nmax_nr=$max_nr\ninput_type=$input_type\n";
 printf "# begin ${base64_sha1%% *} $input_path\n$begin_timestamp,$sleep_sec,$step_rows,$qr_count,$max_nr,$input_type" | qrencode -o - -t ansi256
 sleep $sleep_sec; sleep 0.8;
@@ -141,6 +141,6 @@ sleep $sleep_sec; sleep 0.8;
 
 printf -v blank_lines_all "%${rows_cols% *}s" " ";
 printf -v blank_lines_all %s" ${blank_lines_all// /\\n}";
-printf "$blank_lines_all\n# complete! sending the file '$input_path', using $qr_count + 2 QR codes, took $use_sec seconds.\n"
+printf "$blank_lines_all\n# complete! the file '$input_path' was sent with $qr_count + 2 QR codes in $use_sec seconds.\n"
 
 rm -f "$base64_tmp_file";

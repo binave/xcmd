@@ -152,6 +152,26 @@ range=1-120
 xlib hosts
 ```
 
+### Shell 自动补齐（macOS/Linux）
+
+从脚本注解自动生成所有命令、选项和参数值的补全配置：
+
+```bash
+# 生成并安装到当前 shell（bash/zsh），输出 source 行
+xlib comp -i
+
+# 或输出到标准输出，自行安装
+xlib comp --bash
+xlib comp --zsh
+
+# 检查注解并输出告警
+xlib comp --check
+```
+
+`xlib comp -i` 会生成补全文件，并在 `~/.bashrc` 或 `~/.zshrc` 缺少 source 行时自动补上（zsh 下该行必须在 `compinit` 之后），然后重启 shell 生效；脚本删改后重新执行一次 `xlib comp -i` 即可。参数值同样可补齐，例如 `wol <TAB>` 可补全 `[hosts]` 别名、MAC 地址和本机 IPv4。若补全退化成当前目录，说明 rc 没有加载补全文件。
+
+帮助与补全共用一份"贴着代码"的注解：命令上方放 `###` 块，每个 `case` 分支上方放缩进的 `###` 行，采用 GNU 风格（`-o, --option=FILE`、`NAME=TYPE`）。元变量决定补全来源：`FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND`（`HOSTIP` 指 `/etc/hosts` 里有、但 `[hosts]` ini 里没有的 IP），`{a|b}` 表示枚举。`###` 专用于注解，其它注释请用 `#`，否则 `xlib comp --check` 会告警。引擎位于 `comp.xlib`，由 `xlib` 与 `x3rd` 共用；`x3rd` 的补全用 `x3rd comp -i` 安装。
+
 ### Microsoft Office 部署（Windows）
 
 自动化安装 Microsoft Office
@@ -208,6 +228,7 @@ xlib kms -o 192.168.1.1
 
 - Shell 实现的复杂数据结构（字典、队列等）
 - 区分 macOS 和 Linux 版本的函数
+- 所有命令、选项和参数值的自动生成补全（`xlib comp -i`）
 
 ### xjar (Linux)
 

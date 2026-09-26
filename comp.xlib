@@ -1,0 +1,506 @@
+#!/bin/bash
+#   Copyright 2026 bin jin
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
+
+# Shared shell completion, sourced by xlib / x3rd.
+#   Scan the annotation of the host script ($0) and generate bash / zsh completion.
+#   Entry: __comp_main [OPTION].
+
+# Print option help; align the description like GNU --help.
+__annot_print () {
+    local text spec desc rest i w=0 col;
+    local -a left_arr=() desc_arr=();
+    for text in "$@"; do
+        # Split the option part and the description at the first two spaces.
+        spec=${text#"${text%%[![:space:]]*}"};
+        rest=${spec#*"  "};
+        if [ "$rest" == "$spec" ]; then
+            desc=
+        else
+            desc=${rest#"${rest%%[![:space:]]*}"};
+            spec=${spec%%  *}
+        fi
+        # Long option without a short form: indent under the short form.
+        case $spec in
+            --*) left="    $spec";;
+            *) left="$spec";;
+        esac
+        left_arr[${#left_arr[@]}]="$left";
+        desc_arr[${#desc_arr[@]}]="$desc";
+        [ ${#left} -gt $w ] && w=${#left};
+    done
+    col=$((2 + w + 2));
+    [ $col -gt 34 ] && col=34;
+    for ((i=0; i<${#left_arr[@]}; i++)); do
+        if [ ! "${desc_arr[$i]}" ]; then
+            printf "  %s\n" "${left_arr[$i]}";
+        elif [ $((2 + ${#left_arr[$i]} + 2)) -le $col ]; then
+            printf "  %-*s%s\n" $((col - 2)) "${left_arr[$i]}" "${desc_arr[$i]}";
+        else
+            printf "  %s\n%*s%s\n" "${left_arr[$i]}" "$col" "" "${desc_arr[$i]}";
+        fi
+    done
+}
+
+# Scan the annotation and print records split with [TAB]:
+#   C [TAB] [command] [TAB] . [TAB] [help line]                command annotation
+#   O [TAB] [command] [TAB] [case pattern] [TAB] [help line]   option annotation
+#   W [TAB] . [TAB] . [TAB] [help line]                        unbound annotation
+#   A [###] at the line start annotates the next [script]_[command] () {
+#   An indented [###] annotates the next [case] pattern
+#   [###] is reserved for annotation; any other comment must use [#]
+__annot_scan () {
+    local line trim text pattern cmd= depth=0 i= u=;
+    local -a cmd_ann=() op_ann=();
+    while IFS= read -r line; do
+        trim=${line#"${line%%[![:space:]]*}"};
+        # Annotation line.
+        case $trim in
+            '### '*|'###')
+                text=${trim#\#\#\#};
+                text=${text# };
+                if [ "$trim" == "$line" ]; then
+                    cmd_ann[${#cmd_ann[@]}]="$text"
+                else
+                    op_ann[${#op_ann[@]}]="$text"
+                fi
+                continue
+            ;;
+        esac
+        # A blank line keeps the pending annotation.
+        [ "$trim" ] || continue;
+        # Bind or drop the pending option annotation.
+        if [ ${#op_ann[@]} -gt 0 ]; then
+            if [ "$cmd" ] && [ $depth -ge 1 ] && [ "${trim:0-1}" == ")" ]; then
+                pattern=${trim%)};
+                for text in "${op_ann[@]}"; do printf 'O\t%s\t%s\t%s\n' "$cmd" "$pattern" "$text"; done
+            else
+                for text in "${op_ann[@]}"; do printf 'W\t.\t.\t%s\n' "$text"; done
+            fi
+            op_ann=();
+        fi
+        # Function definition at the line start.
+        if [ "$trim" == "$line" ]; then
+            case $line in
+                _${0##*/}_*' () {'*)
+                    cmd=${line%% *}; cmd=${cmd#_${0##*/}_};
+                    # Only the line just above [Usage:] is the brief; the rest is stray.
+                    u=-1;
+                    for ((i=0; i<${#cmd_ann[@]}; i++)); do
+                        case ${cmd_ann[$i]} in
+                            Usage:*) u=$i; break;;
+                        esac
+                    done
+                    [ $u -gt 1 ] && for ((i=0; i<u - 1; i++)); do printf 'W\t.\t.\t%s\n' "${cmd_ann[$i]}"; done
+                    for ((i=(u > 0 ? u - 1 : 0); i<${#cmd_ann[@]}; i++)); do printf 'C\t%s\t.\t%s\n' "$cmd" "${cmd_ann[$i]}"; done
+                    cmd_ann=(); depth=0;
+                    continue
+                ;;
+                *' () {'*|'}')
+                    for text in "${cmd_ann[@]}"; do printf 'W\t.\t.\t%s\n' "$text"; done
+                    cmd=; cmd_ann=(); depth=0;
+                    continue
+                ;;
+            esac
+        fi
+        # A [###] at the line start must be adjacent to the function.
+        for text in "${cmd_ann[@]}"; do printf 'W\t.\t.\t%s\n' "$text"; done
+        cmd_ann=();
+        [ "$cmd" ] || continue;
+        # Case depth.
+        case $trim in
+            case*' in')
+                ((++depth));
+                continue
+            ;;
+            esac*)
+                [ $depth -gt 0 ] && ((--depth));
+                continue
+            ;;
+        esac
+    done < "$0"
+}
+
+# Print option tokens of an option annotation line:
+#   '-b, --broadcast=ADDRESS   desc' -> '-b --broadcast'
+#   'b, bridge   desc'               -> 'b bridge'
+__comp_tokens () {
+    local spec=$1 t;
+    spec=${spec#"${spec%%[![:space:]]*}"};
+    spec=${spec%%  *};
+    spec=${spec%%=*};
+    spec=${spec%[};
+    for t in ${spec//,/ }; do printf "%s " "$t"; done
+}
+
+# Scan the annotation and print: [command] [TAB] [option=kind,...]... [TAB] [operand kind,...]
+__comp_scan () {
+    local kind cmd key text types t;
+    local cur= optspec= poskinds= lastpat=;
+    while IFS=$'\t' read -r kind cmd key text; do
+        [ "$kind" == "W" ] && continue;
+        [ "$cmd" ] || continue;
+        if [ "$cmd" != "$cur" ]; then
+            [ "$cur" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds";
+            cur=$cmd; optspec=; poskinds=; lastpat=;
+        fi
+        case $kind in
+            C)
+                case $text in
+                    Usage:*)
+                        poskinds=$(__comp_kinds "$poskinds $(__comp_usage "${text#Usage:}")")
+                    ;;
+                esac
+            ;;
+            O)
+                [ "$key" == "$lastpat" ] && continue;
+                lastpat=$key;
+                types=$(__comp_type "$(__comp_spec "$text")");
+                if [ "$key" == "*" ]; then
+                    poskinds=$(__comp_kinds "$poskinds ${types//,/ }")
+                else
+                    for t in `__comp_tokens "$text"`; do optspec="$optspec $t=$types"; done
+                fi
+            ;;
+        esac
+    done < <(__annot_scan);
+    [ "$cur" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds"
+}
+
+# Check the annotation and print warnings.
+__comp_check () {
+    local kind cmd key text last= usage= warn=;
+    while IFS=$'\t' read -r kind cmd key text; do
+        case $kind in
+            C)
+                if [ "$cmd" != "$last" ]; then
+                    [ "$last" ] && [ "$usage" != "$last" ] && { printf 'WARN: %s: no Usage line\n' "$last"; warn=true; };
+                    last=$cmd; usage=;
+                fi
+                case $text in
+                    Usage:*) usage=$cmd;;
+                esac
+            ;;
+            W) printf 'WARN: unbound annotation: %s\n' "$text"; warn=true;;
+        esac
+    done < <(__annot_scan);
+    [ "$last" ] && [ "$usage" != "$last" ] && { printf 'WARN: %s: no Usage line\n' "$last"; warn=true; };
+    [ "$warn" ] && return 1;
+    return 0
+}
+
+# Print type expression of an option or operand annotation line:
+#   '-b, --broadcast=ADDRESS   desc'  -> ADDRESS
+#   'TARGET=ALIAS|HOSTIP   desc'  -> ALIAS|HOSTIP
+__comp_spec () {
+    local spec=$1;
+    spec=${spec#"${spec%%[![:space:]]*}"};
+    spec=${spec%%  *};
+    case $spec in
+        *=*)
+            # Optional argument style: --opt[=ARG].
+            spec=${spec#*=}; spec=${spec%...}; spec=${spec%]};
+            printf "%s" "$spec"
+        ;;
+    esac
+}
+
+# Parse the type expression and print kinds joined with ','.
+#   ADDRESS -> ipv4, MAC|HOST -> mac,alias,ipv4, {yes|no} -> e:yes:no
+__comp_type () {
+    local t=$1 i k kinds= vals=;
+    case $t in
+        '{'*'}')
+            t=${t#\{}; t=${t%\}};
+            for i in ${t//|/ }; do vals="${vals:+$vals:}$i"; done
+            printf "e:%s" "$vals";
+            return 0
+        ;;
+    esac
+    for i in ${t//|/ }; do
+        k=$(__comp_kind "$i");
+        [ "$k" ] && kinds="$kinds ${k//,/ }";
+    done
+    printf "%s" "$(__comp_kinds "$kinds")"
+}
+
+# Parse the usage text and print the kinds of the metavariables.
+__comp_usage () {
+    local i kind kinds=;
+    for i in `printf "%s" "$1" | grep -o '[A-Z][A-Z0-9_]*'`; do
+        case $i in
+            OPTION|OPTIONS) continue;;
+        esac
+        kind=$(__comp_kind "$i");
+        [ "$kind" ] && kinds="$kinds ${kind//,/ }";
+    done
+    printf "%s" "$(__comp_kinds "$kinds")"
+}
+
+# Kinds accepted by [comp --value]; keep in sync with __comp_kind.
+__COMP_KINDS="alias mac ipv4 hostip shell kind";
+
+# Map a GNU metavariable to completion kinds.
+__comp_kind () {
+    local s;
+    s=`printf "%s" "$1" | tr "[:lower:]" "[:upper:]"`;
+    case $s in
+        FILE)             printf file;;
+        IMAGE)            printf file;;
+        DIRECTORY|DIR)    printf dir;;
+        DEVICE)           printf dir;;
+        PATH)             printf file;;
+        HOST)             printf alias,ipv4;;
+        ADDRESS|IP|IPV4)  printf ipv4;;
+        MAC)              printf mac;;
+        ALIAS)            printf alias;;
+        HOSTIP)           printf hostip;;
+        SHELL)            printf shell;;
+        KIND)             printf kind;;
+        *) :;;
+    esac
+}
+
+# Dedupe and join kinds with ','.
+__comp_kinds () {
+    local i out=;
+    for i in $1; do
+        case ",$out," in
+            *",$i,"*) :;;
+            *) out="${out:+$out,}$i";;
+        esac
+    done
+    printf "%s" "$out"
+}
+
+# Print candidates by kind; kinds are split with ','.
+__comp_value_kind () {
+    # [hosts] ini must be loaded in map0 by the caller.
+    local kind=$1 i j ini=;
+    case $kind in
+        alias)
+            _map --keys;
+            for i in ${MAP2ARRAY[@]}; do printf "%s\n" "$i"; done
+        ;;
+        mac)
+            _map --values;
+            for i in ${MAP2ARRAY[@]}; do
+                for j in ${i//|/ }; do
+                    [[ ${j//-/:} == *:*:*:*:*:* ]] && printf "%s\n" "$j"
+                done
+            done
+        ;;
+        ipv4)
+            __ipv4_list
+        ;;
+        hostip)
+            # An IP in /etc/hosts that is not in the [hosts] ini.
+            _map --keys;
+            for i in ${MAP2ARRAY[@]}; do ini="$ini $i"; done;
+            _map --values;
+            for i in ${MAP2ARRAY[@]}; do
+                for j in ${i//|/ }; do ini="$ini $j"; done
+            done;
+            for i in `awk '{print $1}' /etc/hosts`; do
+                __ipv4_test "$i" || continue;
+                case $i in 0.*|127.*|169.254.*|2[2-5][0-9].*) continue;; esac
+                case " $ini " in *" $i "*) continue;; esac
+                printf "%s\n" "$i"
+            done
+        ;;
+        shell)
+            printf "bash\nzsh\n"
+        ;;
+        kind)
+            printf "%s\n" $__COMP_KINDS
+        ;;
+        e:*)
+            for i in ${kind#e:}; do
+                for j in ${i//:/ }; do printf "%s\n" "$j"; done
+            done
+        ;;
+    esac
+}
+
+# Print candidates by kind; kinds are split with ',' and keep their order.
+__comp_value () {
+    [ "$1" ] || return 1;
+    source "$(__script_dir)/bash.xlib";
+    local kind;
+    # Load the [hosts] ini once for the kinds that need it.
+    case ",$1," in
+        *,alias,*|*,mac,*|*,hostip,*) __load_ini hosts;;
+    esac
+    for kind in ${1//,/ }; do
+        case $kind in
+            hostip|ipv4) __comp_value_kind "$kind" | sort -u -V;;
+            *)           __comp_value_kind "$kind" | sort -u;;
+        esac
+    done | awk '!seen[$0]++'
+}
+
+__comp_split () {
+    # Split an option spec list; set words, bare and caseentries.
+    local spec opt kinds;
+    words=; bare=; caseentries=;
+    for spec in $1; do
+        opt=${spec%%=*}; kinds=${spec#*=};
+        words="$words $opt";
+        case $opt in -*|+*) :;; *) bare="$bare $opt";; esac
+        [ "$kinds" ] && caseentries="$caseentries $opt=$kinds";
+    done
+}
+
+# Print the bash completion script.
+__comp_bash () {
+    local name=${0##*/} xlib="$(__script_dir)/${0##*/}";
+    local cmd opts poskinds spec opt kinds words bare caseentries scan cmds;
+    scan=$(__comp_scan);
+    cmds=$(printf '%s\n' "$scan" | cut -d';' -f1 | sort -u | tr '\n' ' ');
+    printf '#!/bin/bash\n';
+    printf '# %s bash completion, auto-generated by: %s comp -i\n' "$name" "$name";
+    printf '_%s_completion () {\n' "$name";
+    printf '    local cur prev cmd\n';
+    printf '    cur="${COMP_WORDS[COMP_CWORD]}"\n';
+    printf '    prev="${COMP_WORDS[COMP_CWORD-1]}"\n';
+    printf '    if [ "$COMP_CWORD" == 1 ]; then\n';
+    printf '        COMPREPLY=($(compgen -W "%s" -- "$cur"))\n' "$cmds";
+    printf '        return\n';
+    printf '    fi\n';
+    printf '    cmd="${COMP_WORDS[1]}"\n';
+    printf '    case $cmd in\n';
+    while IFS=';' read cmd opts poskinds; do
+        [ "$cmd" ] || continue;
+        printf '        %s)\n' "$cmd";
+        __comp_split "$opts";
+        if [ "$caseentries" ]; then
+            printf '            case $prev in\n';
+            for spec in $caseentries; do
+                opt=${spec%%=*}; kinds=${spec#*=};
+                printf '                %s) %s; return;;\n' "$opt" "$(__comp_reply "$xlib" "$kinds")";
+            done
+            printf '            esac\n';
+        fi
+        printf '            if [[ $cur == -* ]]; then\n';
+        printf '                COMPREPLY=($(compgen -W "%s" -- "$cur")); return\n' "${words# }";
+        printf '            fi\n';
+        if [ "$bare" ]; then
+            printf '            COMPREPLY=($(compgen -W "%s" -- "$cur")); return;;\n' "${bare# }";
+        else
+            printf '            %s; return;;\n' "$(__comp_reply "$xlib" "$poskinds")";
+        fi
+    done <<< "$scan"
+    printf '    esac\n';
+    printf '}\n';
+    printf 'if [ "${BASH_VERSINFO[0]}" -ge 4 ]; then\n';
+    printf '    complete -o nosort -F _%s_completion %s\n' "$name" "$name";
+    printf 'else\n';
+    printf '    complete -F _%s_completion %s\n' "$name" "$name";
+    printf 'fi\n'
+}
+
+# Print the bash reply command for kinds.
+__comp_reply () {
+    local xlib=$1 kinds=$2;
+    case $kinds in
+        "")     printf ':';;
+        *file*) printf 'COMPREPLY=($(compgen -f -- "$cur"))';;
+        *dir*)  printf 'COMPREPLY=($(compgen -d -- "$cur"))';;
+        *)      printf 'COMPREPLY=($(compgen -W "$("%s" comp --value %s)" -- "$cur"))' "$xlib" "$kinds";;
+    esac
+}
+
+# Print the zsh completion script.
+__comp_zsh () {
+    local name=${0##*/} xlib="$(__script_dir)/${0##*/}";
+    local cmd opts poskinds spec opt kinds words bare caseentries scan cmds;
+    scan=$(__comp_scan);
+    cmds=$(printf '%s\n' "$scan" | cut -d';' -f1 | sort -u | tr '\n' ' ');
+    printf '#!/bin/zsh\n';
+    printf '# %s zsh completion, auto-generated by: %s comp -i\n' "$name" "$name";
+    printf '_%s_completion () {\n' "$name";
+    printf '    local cur prev cmd\n';
+    printf '    cur=${words[CURRENT]}\n';
+    printf '    prev=${words[CURRENT-1]}\n';
+    printf '    if (( CURRENT == 2 )); then\n';
+    printf '        compadd -- %s\n' "$cmds";
+    printf '        return\n';
+    printf '    fi\n';
+    printf '    cmd=${words[2]}\n';
+    printf '    case $cmd in\n';
+    while IFS=';' read cmd opts poskinds; do
+        [ "$cmd" ] || continue;
+        printf '        %s)\n' "$cmd";
+        __comp_split "$opts";
+        if [ "$caseentries" ]; then
+            printf '            case $prev in\n';
+            for spec in $caseentries; do
+                opt=${spec%%=*}; kinds=${spec#*=};
+                printf '                %s) %s; return;;\n' "$opt" "$(__comp_zreply "$xlib" "$kinds")";
+            done
+            printf '            esac\n';
+        fi
+        printf '            if [[ $cur == -* ]]; then\n';
+        printf '                compadd -- %s; return\n' "${words# }";
+        printf '            fi\n';
+        if [ "$bare" ]; then
+            printf '            compadd -- %s; return;;\n' "${bare# }";
+        else
+            printf '            %s; return;;\n' "$(__comp_zreply "$xlib" "$poskinds")";
+        fi
+    done <<< "$scan"
+    printf '    esac\n';
+    printf '}\n';
+    printf 'compdef _%s_completion %s\n' "$name" "$name"
+}
+
+# Print the zsh reply command for kinds.
+__comp_zreply () {
+    local xlib=$1 kinds=$2 kind;
+    case $kinds in
+        "")     printf ':'; return;;
+        *file*) printf '_files'; return;;
+        *dir*)  printf '_files -/'; return;;
+    esac
+    for kind in ${kinds//,/ }; do
+        printf 'compadd -V %s -- ${(f)"$("%s" comp --value %s)"}\n' "$kind" "$xlib" "$kind";
+    done
+    printf ':'
+}
+
+# Install the completion into HOME.
+__comp_install () {
+    local shell_name=${1:-${SHELL##*/}} file rc;
+    case $shell_name in
+        bash)
+            file=$HOME/.${0##*/}.comp.bash;
+            rc=$HOME/.bashrc;
+            __comp_bash > "$file" || return 1 # Write file error.
+        ;;
+        zsh)
+            file=$HOME/.${0##*/}.comp.zsh;
+            rc=$HOME/.zshrc;
+            __comp_zsh > "$file" || return 1 # Write file error.
+        ;;
+        *)
+            return 1 # Shell not supported.
+        ;;
+    esac
+    printf "source %s\n" "$file";
+    # Load the completion in the rc file; it must be after 'compinit' for zsh.
+    grep -Fq "${file##*/}" "$rc" 2>/dev/null || {
+        printf "\n# %s shell completion, keep it after compinit\nsource %s\n" "$shell_name" "$file" >> "$rc" || return 1;
+        printf "# added the line above to %s, restart the shell to take effect\n" "$rc" >&2
+    }
+}

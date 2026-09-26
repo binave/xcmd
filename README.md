@@ -154,6 +154,26 @@ range=1-120
 xlib hosts
 ```
 
+### Shell Completion (macOS/Linux)
+
+Completion for all commands, options and argument values is auto-generated from the script annotations:
+
+```bash
+# Generate and install for the current shell (bash/zsh), print the source line
+xlib comp -i
+
+# Or print to stdout for a custom setup
+xlib comp --bash
+xlib comp --zsh
+
+# Check the annotation, print warnings
+xlib comp --check
+```
+
+`xlib comp -i` writes the completion file and appends the `source` line to `~/.bashrc` or `~/.zshrc` when it is missing (for zsh the line must come after `compinit`), then restart the shell. Re-run `xlib comp -i` after the script is edited. Argument values are completed too, e.g. `wol <TAB>` completes `[hosts]` aliases, MAC addresses and local IPv4. If completion falls back to the current directory, the completion file is not loaded by your rc.
+
+Help and completion share one annotation next to the code: a `###` block above the command, and an indented `###` line above each `case` branch, using GNU style (`-o, --option=FILE`, `NAME=TYPE`). The metavariable names the completion source: `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND` (`HOSTIP` is an IP in `/etc/hosts` that is not in the `[hosts]` ini), and `{a|b}` is an enumeration. `###` is reserved for annotation — any other comment must use `#`, otherwise `xlib comp --check` will report it. The engine lives in `comp.xlib` and is shared by `xlib` and `x3rd`; use `x3rd comp -i` for the `x3rd` completion.
+
 ### Microsoft Office Deployment (Windows)
 
 Automated Microsoft Office Installation
@@ -210,6 +230,7 @@ Transfer small files/folders via RDP clipboard (for older Windows versions):
 
 - Shell implementation of complex data structures (dictionaries, queues, etc.)
 - Platform-specific functions for macOS and Linux
+- Auto-generated shell completion for all commands, options and argument values (`xlib comp -i`)
 
 ### xjar (Linux)
 
