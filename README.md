@@ -235,7 +235,7 @@ Transfer small files/folders via RDP clipboard (for older Windows versions):
 ### xjar (Linux)
 
 - Process Management: Start/Stop/Restart JAR applications
-- Log Management: View, redirect, auto-rotate, and clean logs
+- Log Management: View, split (auto-rotate), and clean logs
 - Status Monitoring: Display process information, CPU/memory usage, network connections, and thread details
 - Batch Operations: Supports multi-directory batch management
 - Debugging Support: Supports JDWP remote debugging

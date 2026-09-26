@@ -109,11 +109,17 @@ ${XJ_BOLD}Options${XJ_RE}:
                                     ${0##*/} log 100 -0 # the last 100 lines of today.
                                     ${0##*/} log 500 -0 | grep -B 5 -A 15 -i error # search the error log.
 
-            [--redirect]            redirect stdout and stderr to a file
+            [--rotate]              split the running log without restarting the jar:
+                                    move the log written so far into the previous day's
+                                    file and keep appending the new log to today's file.
                                 e.g.,
-                                    ${0##*/} log --redirect
+                                    ${0##*/} log --rotate
+                                    ${0##*/} log --rotate --strict # freeze the writer
+                                        briefly so no log line is ever lost.
+                                    (--redirect is kept as an alias of --rotate.)
 
-            [--cron [path]]         automatically redirect the log file every day.
+            [--cron [path]]         automatically rotate the log file every day
+                                    (random start minute and random delay).
                                 e.g.,
                                     ${0##*/} log --cron /var/run
 
@@ -182,6 +188,9 @@ JAR_LOG_DIR_SUF=/console;
 LIVE_LOG_DIR=/var/log/xjar-live;
 JAR_ARGS=' --config.location=./application.yml'
 # JAVA_BIN_DIR=/usr/lib/jvm/openjdk-8/bin
+# LOG_ROTATE_CHUNK=4194304; # Bytes moved per log rotation step.
+# LOG_ROTATE_DELAY=1800; # Max random delay (seconds) of the daily rotation.
+# LOG_ROTATE_STRICT=1; # Freeze the writer briefly so no log line is lost.
 STOP_TIMEOUT=30
 ${XJ_RE}EOF
 
@@ -214,23 +223,95 @@ __xj_pipe_pid () {
     return 1
 }
 
-__xj_redirect() {
-    [ "$(readlink --canonicalize /proc/$1/fd/1)" == "$2" ] && return 0;
-    [ -s "$2" ] && return 1;
-    mkdir -p "${2%/*}" || return 1;
-    touch "$2";
-    chown $3 "$2"; # ps -p $1 -o user | awk '{if(NR == 2) printf $1}'
-#     gdb -p $1 >/dev/null 2>&1 <<GDB
-# set scheduler-locking on
-# print close(1)
-# print open("$2", 1)
-# print close(2)
-# print open("$2", 1)
-# quit
-# GDB
-    # # https://github.com/jerome-pouiller/reredirect
-    reredirect -N -m "$2" $1
+# The pid that owns the log file: the awk prefix process if LOG_PREFIX is set,
+# otherwise the java process itself.
+__xj_log_writer_pid() {
+    __xj_pipe_pid "$1" || printf '%s' "$1"
+}
 
+# True when the file of the given pid is opened with O_APPEND. The rotation
+# only ever cuts the file tail, so an appending writer keeps working.
+__xj_log_is_append() {
+    local xj_flags;
+    xj_flags=$(awk '/^flags:/{print $2}' /proc/$1/fdinfo/1 2>/dev/null);
+    case "$xj_flags" in ''|*[!0-7]*) return 1;; esac;
+    [ $(( 0$xj_flags & 02000 )) -ne 0 ]
+}
+
+# Resume a writer that strict mode froze.
+__xj_log_resume() {
+    [ "$1" ] && kill -CONT "$1" 2>/dev/null;
+    return 0
+}
+
+# Split $1 (live log) so that everything written before this run ends up in $2
+# (archive) and the live file keeps only the newer log. $3 is a scratch file,
+# $4 the owner and $5 the writer pid (only set in strict mode).
+#
+# The source is walked from its tail towards its head: each step copies one
+# block into the archive at the very same offset, then cuts that block off the
+# source tail. The archive is pre-sized as a sparse file, so the space it gains
+# is exactly the space the source releases: disk usage stays flat and no
+# special filesystem support is needed. The log written after the boundary is
+# carried down with every step, so it is preserved; only bytes appended during
+# the final truncate of a step can be lost.
+#
+# When $5 is set (strict mode) the writer is frozen with SIGSTOP for that short
+# critical section only, so nothing can be appended there and no byte is lost.
+# The chunk copy itself runs with the writer running, keeping the freeze at
+# microseconds-to-milliseconds per step.
+__xj_log_rotate() {
+    local xj_live="$1" xj_arch="$2" xj_spool="$3" xj_owner="$4" xj_wpid="$5";
+    local xj_bs=4096 xj_chunk xj_size xj_hi xj_lo xj_b xj_nstart xj_nlen xj_rem;
+    [ -s "$xj_live" ] || return 0;
+    xj_chunk=${XJ_LOG_ROTATE_CHUNK:-4194304};
+    case "$xj_chunk" in ''|*[!0-9]*|0) xj_chunk=4194304;; esac;
+    [ "$xj_chunk" -ge "$xj_bs" ] || xj_chunk=$xj_bs;
+    xj_chunk=$(( xj_chunk / xj_bs * xj_bs ));
+    xj_size=$(stat -c %s "$xj_live") || return 1;
+    xj_hi=$(( xj_size / xj_bs * xj_bs ));
+    xj_nstart=$xj_size;
+    case "$xj_wpid" in ''|*[!0-9]*) xj_wpid=;; esac;
+    # Never leave the writer frozen if this run is killed mid-step.
+    [ "$xj_wpid" ] && trap "kill -CONT $xj_wpid 2>/dev/null" EXIT INT TERM HUP;
+
+    mkdir -p "${xj_arch%/*}" || return 1;
+    : > "$xj_arch" || return 1;
+    # Pre-size the archive without using blocks; the tail is filled first.
+    truncate -s "$xj_size" "$xj_arch" || return 1;
+    chown "$xj_owner" "$xj_arch" 2>/dev/null;
+    : > "$xj_spool" || return 1;
+
+    # The sub-block tail of the old log.
+    xj_rem=$(( xj_size - xj_hi ));
+    if [ "$xj_rem" -gt 0 ]; then
+        dd if="$xj_live" of="$xj_arch" bs=1 skip="$xj_hi" seek="$xj_hi" count="$xj_rem" conv=notrunc status=none || return 1;
+    fi
+
+    while :; do
+        if [ "$xj_hi" -gt 0 ]; then
+            xj_b=$xj_chunk; [ "$xj_b" -gt "$xj_hi" ] && xj_b=$xj_hi;
+            xj_lo=$(( xj_hi - xj_b ));
+            dd if="$xj_live" of="$xj_arch" bs="$xj_bs" skip="$(( xj_lo / xj_bs ))" seek="$(( xj_lo / xj_bs ))" count="$(( xj_b / xj_bs ))" conv=notrunc status=none || return 1;
+        else
+            xj_lo=0;
+        fi
+        # Carry the log written after the boundary down with the head.
+        [ "$xj_wpid" ] && kill -STOP "$xj_wpid" 2>/dev/null;
+        tail -c +$(( xj_nstart + 1 )) "$xj_live" > "$xj_spool" || { __xj_log_resume "$xj_wpid"; return 1; };
+        xj_nlen=$(stat -c %s "$xj_spool");
+        if [ "$xj_nlen" -gt 0 ]; then
+            dd if="$xj_spool" of="$xj_live" bs="$xj_bs" seek="$(( xj_lo / xj_bs ))" count="$(( (xj_nlen + xj_bs - 1) / xj_bs ))" conv=notrunc status=none || { __xj_log_resume "$xj_wpid"; return 1; };
+        fi
+        truncate -s "$(( xj_lo + xj_nlen ))" "$xj_live" || { __xj_log_resume "$xj_wpid"; return 1; };
+        __xj_log_resume "$xj_wpid";
+        [ "$xj_lo" -eq 0 ] && break;
+        xj_hi=$xj_lo;
+        xj_nstart=$xj_lo;
+    done
+    [ "$xj_wpid" ] && trap - EXIT INT TERM HUP;
+    rm -f "$xj_spool";
+    return 0
 }
 
 __xj_test_command() {
@@ -367,7 +448,6 @@ __xj_main() {
                 '{printf "%s, %-26s %s\n" ,strftime("%F %T"), arg_name ",", $0 >> strftime(dir_prefix "/live_%Y%m%d.log");fflush(stdout)}' && \
                     exit 0
 
-            __xj_test_command reredirect || :;
             __xj_test_command readlink || :;
             __xj_test_single_process;
             [ "$xj_java_pid" ] && { printf "name:${XJ_BOLD}%-26s${XJ_RE} is running.\n" $xj_jar_name; exit 1; } >&2;
@@ -484,29 +564,66 @@ __xj_main() {
                     tail $@ "$xj_jar_log_file" 2>/dev/null | __xj_colorless
 
                 ;;
-                --redirect)
+                --rotate|--redirect)
                     __xj_permission "$@";
-                    __xj_test_command reredirect || exit 1;
                     __xj_test_command readlink || exit 1;
+                    __xj_test_command dd || exit 1;
+                    __xj_test_command stat || exit 1;
+                    __xj_test_command truncate || exit 1;
+                    __xj_test_command tail || exit 1;
                     [ "$xj_java_pid" ] || {
                         [ "$TERM" == "dumb" ] || printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] not running.\n" $xj_jar_name, >&2;
                         exit 1
                     };
                     __xj_test_single_process;
-                    # Test the awk prefix.
-                    xj_jar_new_log_file="$(date +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)";
-                    xj_pid=$(__xj_pipe_pid $xj_java_pid) || xj_pid=$xj_java_pid;
-                    __xj_redirect $xj_pid "$xj_jar_new_log_file" $xj_user:$xj_group || {
-                        printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] target log file '$xj_jar_new_log_file' exists and is not empty.\n" $xj_jar_name, >&2;
+                    xj_log_writer_pid=$(__xj_log_writer_pid $xj_java_pid);
+                    xj_live_log_file="$(readlink --canonicalize /proc/$xj_log_writer_pid/fd/1 2>/dev/null)";
+                    [ -f "$xj_live_log_file" ] || {
+                        printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] cannot locate the live log file of pid ${XJ_BOLD}%s${XJ_RE}.\n" $xj_jar_name, "$xj_log_writer_pid" >&2;
                         exit 1
-                    }
+                    };
+                    __xj_log_is_append $xj_log_writer_pid || {
+                        printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] the live log file is not opened in append mode; rotating it would be unsafe.\n" $xj_jar_name, >&2;
+                        exit 1
+                    };
+                    xj_log_dir="${xj_live_log_file%/*}";
+                    xj_live_log_name="${xj_live_log_file##*/}";
+                    # Strip the trailing _YYYYMMDD.log to keep the log name stable.
+                    xj_log_stem="${xj_live_log_name%_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].log}";
+                    [ "$xj_log_stem" != "$xj_live_log_name" ] || xj_log_stem="$xj_jar_name";
+                    xj_jar_new_log_file="$xj_log_dir/${xj_log_stem}_$(date +%Y%m%d).log";
+                    # The archive keeps the live file's own (previous day) name.
+                    xj_jar_old_log_file="$xj_live_log_file";
 
-                    chmod a-w "$(date -d -24\ hour +$XJ_JAR_LOG_DIR/${xj_jar_name}_%Y%m%d.log)" 2>/dev/null;
+                    # The live log is already named for today: nothing to rotate.
+                    [ "$xj_live_log_file" != "$xj_jar_new_log_file" ] || exit 0;
+
+                    [ -e "$xj_jar_new_log_file" ] && {
+                        [ -s "$xj_jar_new_log_file" ] && {
+                            printf "name:${XJ_BOLD}%-26s${XJ_RE} [${XJ_B_RED}ERROR${XJ_RE}] target log file '${XJ_GREEN}%s${XJ_RE}' exists and is not empty.\n" $xj_jar_name, "$xj_jar_new_log_file" >&2;
+                            exit 1
+                        };
+                        rm -f "$xj_jar_new_log_file"
+                    };
+                    # Rename the file the process still writes to; its fd follows
+                    # the inode, so the writer is not interrupted.
+                    mv -f "$xj_live_log_file" "$xj_jar_new_log_file" || exit 1;
+                    # --strict (or LOG_ROTATE_STRICT=1) freezes the writer for
+                    # the short critical section of every step, so nothing is
+                    # ever lost. Otherwise the writer keeps running untouched
+                    # and only a tiny night-time window may drop bytes.
+                    xj_log_strict=;
+                    if [ "$3" == "--strict" ]; then
+                        xj_log_strict=$xj_log_writer_pid;
+                    else
+                        case "${XJ_LOG_ROTATE_STRICT}" in 1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]|[Oo][Nn]) xj_log_strict=$xj_log_writer_pid;; esac;
+                    fi
+                    __xj_log_rotate "$xj_jar_new_log_file" "$xj_jar_old_log_file" "$xj_jar_old_log_file.spool" "$xj_user:$xj_group" "$xj_log_strict" || exit 1;
+                    chmod a-w "$xj_jar_old_log_file" 2>/dev/null;
 
                 ;;
                 --cron)
                     __xj_test_command crontab || exit 1;
-                    __xj_test_command reredirect || exit 1;
                     __xj_test_command readlink || exit 1;
                     shift; shift;
                     [ "$1" ] || {
@@ -518,13 +635,34 @@ __xj_main() {
                         exit 1
                     };
                     # TODO: /etc/cron.d/.
-                    xj_cron_expression="0 0 * * * sudo $0 -d ${1%/} log --redirect";
+                    # Random start minute plus a per-run random delay, so the
+                    # rotation does not fire on a fixed period and does not
+                    # collide with other cron jobs on the same host. The delay
+                    # is seeded from /dev/urandom, because cron jobs starting
+                    # in the same second would otherwise draw the same value.
+                    xj_rotate_delay=${XJ_LOG_ROTATE_DELAY:-1800};
+                    case "$xj_rotate_delay" in ''|*[!0-9]*|0) xj_rotate_delay=1800;; esac;
+                    if command -v od >/dev/null 2>&1; then
+                        xj_cron_minute=$(awk -v s="$(od -An -N2 -tu2 /dev/urandom)" 'BEGIN{srand(s); print int(rand()*60)}');
+                        xj_cron_sleep="\$(awk -v s=\"\$(od -An -N2 -tu2 /dev/urandom)\" 'BEGIN{srand(s); print int(rand()*$xj_rotate_delay)}')";
+                    else
+                        xj_cron_minute=$(awk 'BEGIN{srand(); print int(rand()*60)}');
+                        xj_cron_sleep="\$(awk 'BEGIN{srand(); print int(rand()*$xj_rotate_delay)}')";
+                    fi
+                    xj_cron_strict=;
+                    case "${XJ_LOG_ROTATE_STRICT}" in 1|[Yy][Ee][Ss]|[Tt][Rr][Uu][Ee]|[Oo][Nn]) xj_cron_strict=" --strict";; esac;
+                    xj_cron_expression="$xj_cron_minute 0 * * * sleep $xj_cron_sleep; sudo $0 -d ${1%/} log --rotate$xj_cron_strict";
+                    xj_cron_anchor="sudo $0 -d ${1%/} log --";
                     xj_cron_text=$(crontab -l 2>/dev/null);
                     if [ "$xj_cron_text" ]; then
-                        xj_cron_text_trim=$(awk -F \# '{if($1 !~ /^[[:space:]]*$/) print $1}' <<< "$xj_cron_text");
-                        if [ "${xj_cron_text_trim/$xj_cron_expression/}" == "$xj_cron_text_trim" ]; then
-                            printf '%s\n%s\n' "$xj_cron_text" "$xj_cron_expression" | crontab -
-                        fi
+                        # Replace an existing line for the same directory, so
+                        # re-running this upgrades it instead of duplicating.
+                        xj_cron_text=$(awk -v anchor="$xj_cron_anchor" -v new="$xj_cron_expression" '
+                            /^[[:space:]]*#/ { print; next }
+                            { if (index($0, anchor)) { if (!done++) print new; next } print }
+                            END { if (!done) print new }
+                        ' <<< "$xj_cron_text");
+                        printf '%s\n' "$xj_cron_text" | crontab -
                     else
                         printf '# .---------------- minute (0 - 59)
 # |  .------------- hour (0 - 23)
