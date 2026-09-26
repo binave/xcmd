@@ -48,8 +48,8 @@ __variable_map () {
         --remove) [ "$key" ] && unset VARIABLE_MAP${pool}_PREFIX_$key;;
         --size) printf %d $(set | grep -c '^VARIABLE_MAP'${pool}_PREFIX_);;
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP'${pool}'_PREFIX_/{printf " " $1}'`;;
-        --keys) printf `set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2) "\\\n"} else {printf $2 "\\\n"}}'`;;
-        --2keys) printf `set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2)} else {printf $2}; printf "*"; if($3 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $3)} else {printf $3}; printf "\\\n"}'`;;
+        --keys) printf `set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o "\\\n"} else {printf $2 "\\\n"}}'`;;
+        --2keys) printf `set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o} else {printf $2}; printf "*"; if($3 ~ /^(x[0-9a-f]{2})+$/) {s=$3; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o} else {printf $3}; printf "\\\n"}'`;;
         *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
 

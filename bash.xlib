@@ -57,7 +57,9 @@ _prefix () {
         elif which perl >/dev/null; then
             perl -ne 'use POSIX qw(strftime); print strftime("'"$1"'", localtime), $_'
         else
-            return 1;
+            # 'date' is a first-party tool; slower, but it is always available.
+            local line;
+            while IFS= read -r line; do printf "%s%s\n" "$(date +"$1")" "$line"; done
         fi
     fi
 }
@@ -270,7 +272,7 @@ __variable_map () {
         --size) printf %d $(set | grep -c '^VARIABLE_MAP_PREFIX_');;
         # darwin awk does not support --field-separator=.
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`;;
-        --keys) printf `set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {printf gensub(/x/, "\\\\\\\x", "g", $2) "\\\n"} else {printf $2 "\\\n"}}'`;;
+        --keys) printf `set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o "\\\n"} else {printf $2 "\\\n"}}'`;;
         --values|--arr|--clearall) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2; return 1;;
         *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
@@ -793,7 +795,7 @@ _spinlock () {
                 [ ! -e "/dev/fd/$LOCK_FD" ] && break
             done
             eval "exec $LOCK_FD>>'$2'";
-            until flock --exclusive --nonblock $LOCK_FD; do
+            until flock -x -n $LOCK_FD; do
                 if [ ! -f "$2" -o $(date +%s) -ge $time_stamp ]; then
                     eval "exec $LOCK_FD>&-"
                     return 1
@@ -917,60 +919,3 @@ _lcs_match () {
     printf .$(( (i / `__division $i $z`) * (j / `__division $j $z`) ));
     return 0
 }
-
-# Load the .*.ini config.
-__load_ini () {
-    [ "$1" ] || return 1;
-    local line is_catch=false;
-    while read line; do
-        [ "$line" == "" ] && continue;
-        if [ "${line/=/}" == "$line" ]; then
-            [ "$line" == "[$1]" ] && is_catch=true || is_catch=false;
-        elif $is_catch; then
-            _map $2 --put ${line%%=*} ${line#*=} >/dev/null
-        fi
-    done < <(cat "$(__script_dir)"/.*.ini ~/.*.ini 2>/dev/null | awk -F \; 'gsub(/\r|\\$/, ""); gsub(/\\/, "\\\\"); {print $1}' | uniq);
-
-    # # read environment variable
-    # while read line; do
-    #     [ "$line" == "" -o "${line/=/}" == "$line" ] && continue;
-    #     _xlib_ip --test ${line#*=} || {
-    #         __imac ${line#*=} || continue
-    #     };
-    #     _map $2 --put "${line%%=*}" "${line#*=}" >/dev/null;
-    # done < <(set);
-
-   [ `_map $2 --size` == 0 ] && return 1;
-   return 0
-}
-
-# Test whether STR is an IPv4 address.
-__ipv4_test () {
-    [ "$1" ] || return 1;
-    [ ${#1} -gt 15 ] && return 1;
-    # Skip an option.
-    [ "${1:0:1}" == "-" ] && return 1;
-    [[ $1 != *[^.0-9]* && $1 == [1-9]*[0-9] && $1 != *..* ]] || return 1;
-    local a IFS=$IFS".";
-    a=($1);
-    [ ${#a[@]} == 4 ] || return 1;
-    for a in ${a[@]}; do
-        [ $a -gt 255 ] && return 1;
-    done
-    return 0
-}
-
-# Print local IPv4 addresses by route.
-__ipv4_list () {
-    # netstat -rn | grep "default"
-    local route_ip;
-    [[ $OSTYPE == darwin* ]] && {
-        route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-        ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
-        :
-    } || {
-        route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
-        ip addr | awk '/inet '${route_ip%.*}'\.[0-9]+/{print gensub(/\/.*/, "", "", $2)}'
-    }
-}
-

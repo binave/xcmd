@@ -850,10 +850,12 @@ _m2_download () {
 ### Virtual machine controller
 ### Usage: vm {list|start}
 _x3rd_vm () {
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
     case $1 in
         ###   list   list virtual machines
         ""|list)
             for vn in ~/Virtual\ Machines.localized/*.vmwarevm/*.vmx; do
+                [ -f "$vn" ] || continue;
                 vn="${vn##*/}";
                 printf "%s\n" "${vn%.*}";
             done
@@ -977,11 +979,11 @@ _func_err () {
     # WARNING: 0 <= $? <= 255; return 256 gives $? = 0.
     [ "$4" == "return" ] && exit $(($5 % 256));
 
-    # Get the script line.
+    # A command was not found: the dispatch of an unknown command, or a missing
+    # external command.
     [ $1 == 127 ] && {
-        # No function found.
-        printf "\033[31mError: No function found \033[0m\n" >&2;
-        exit 1
+        [[ $4 == *'${0##*/}'* ]] && { printf "\033[31mError: No function found \033[0m\n" >&2; exit 1; };
+        printf "\033[31mError: Command not found: %s \033[33m($0:$2)\033[0m\n" "$4" >&2; exit 127
     };
 
     exit 0
@@ -1047,7 +1049,13 @@ _func_annotation () {
 }
 
 # Cache and exit.
-trap '_func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
+# bash >= 4.1 resets $LINENO to 1 inside an EXIT trap, so track the real line with
+# a DEBUG trap there; older bash (the 3.2 shipped with macOS) reports it directly.
+[ "${BASH_VERSINFO[0]}" -gt 4 -o "${BASH_VERSINFO[0]}" -eq 4 -a "${BASH_VERSINFO[1]}" -ge 1 ] && {
+    set -T;
+    trap 'case $LINENO in 1|"") :;; *) __err_line=$LINENO;; esac' DEBUG
+};
+trap '_func_err $? "${__err_line:-$LINENO}" $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #                   Framework                   #

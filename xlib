@@ -332,10 +332,10 @@ _xlib_wol () {
         ###   TARGET=ALIAS|HOSTIP   MAC address, hosts alias or IPv4 address
         *)
             # Default broadcast address: the same subnet as the default gateway.
-            [[ $OSTYPE == darwin* ]] && {
-                route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-                :
-            } || route_ip=`ip route | awk '/^default/{if(NR == 1) print $3}'`;
+            [[ $OSTYPE == darwin* ]] && \
+                route_ip=`route -n get default 2>/dev/null | awk '/gateway/{print $2}'` || \
+                route_ip=`ip route 2>/dev/null | awk '/^default[[:space:]]/{if (NR == 1) print $3}'`;
+            [ "$route_ip" ] || exit 1; # Cannot resolve the broadcast IPv4 address.
             broadcast="${route_ip%.*}.255"
         ;;
     esac
@@ -477,6 +477,7 @@ chmod 700 ~/.ssh
 # For _xlib_remote.
 __remote_auto_scp () {
     local password;
+    which expect >/dev/null 2>&1 || exit 1; # The expect command was not found.
     password=$1;
     shift;
     expect <<-TCL
@@ -917,6 +918,7 @@ _xlib_hash () {
 ### Volume info or edit
 ### Usage: vol [OPTION]... [ARG]...
 _xlib_vol () {
+    [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
     case $1 in
         # --encrypts-all|-eca)
         #     local args;
@@ -1041,7 +1043,7 @@ _xlib_dir () {
                 :
             } || set -- \.;
             # ls -alR "$1" 2>/dev/null | grep -c '^-'
-            find "$1" -type f | grep -c '\/'
+            find "$1" -type f | grep -c '/'
         ;;
         ###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY
         --unique|-u)
@@ -1194,7 +1196,8 @@ _xlib_str () {
         ;;
         ###   -U, --uuid   print a UUID
         --uuid|-U)
-            uuidgen
+            # macOS ships 'uuidgen'; the Linux kernel exposes one without a package.
+            [[ $OSTYPE == darwin* ]] && uuidgen || cat /proc/sys/kernel/random/uuid
         ;;
         ###   -t, --dhms=SECONDS   format SECONDS as Nd Nh Nm Ns
         --dhms|-t)
@@ -1243,7 +1246,6 @@ _xlib_cpu () {
 ### Show or find IPv4
 ### Usage: ip [OPTION]... [ARG]...
 _xlib_ip () {
-    type __ipv4_test >/dev/null 2>&1 || source "$(__script_dir)/bash.xlib";
     case $1 in
         ###   -l, --list   print the local IPv4 addresses
         --list|-l)
@@ -1313,15 +1315,62 @@ _xlib_ip () {
     esac
 }
 
+# Test whether STR is an IPv4 address.
+__ipv4_test () {
+    [ "$1" ] || return 1;
+    [ ${#1} -gt 15 ] && return 1;
+    # Skip an option.
+    [ "${1:0:1}" == "-" ] && return 1;
+    [[ $1 != *[^.0-9]* && $1 == [1-9]*[0-9] && $1 != *..* ]] || return 1;
+    local a IFS=$IFS".";
+    a=($1);
+    [ ${#a[@]} == 4 ] || return 1;
+    for a in ${a[@]}; do
+        [ $a -gt 255 ] && return 1;
+    done
+    return 0
+}
+
+# Print local IPv4 addresses by route.
+__ipv4_list () {
+    # netstat -rn | grep "default"
+    local route_ip;
+    [[ $OSTYPE == darwin* ]] && {
+        route_ip=`route -n get default | awk '/gateway/{print $2}'`;
+        ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
+        :
+    } || {
+        # Linux: 'ip' is iproute2, preinstalled on mainstream distributions;
+        # 'ifconfig' is the net-tools fallback. POSIX awk only: mawk has no 'gensub'.
+        route_ip=`ip route 2>/dev/null | awk '/^default[[:space:]]/{if (NR == 1) print $3}'`;
+        [ "$route_ip" ] && ip addr 2>/dev/null | \
+            awk -v p="${route_ip%.*}." '$1 == "inet" && index($2, p) == 1 {sub(/\/.*/, "", $2); print $2}' || \
+        ifconfig 2>/dev/null | awk '$1 == "inet" {sub(/.*:/, "", $2); if ($2 !~ /^(127\.|169\.254\.)/) print $2}';
+        :
+    }
+}
+
+# Print the ARP (neighbour) entry of an IPv4 address.
+__arp_show () {
+    [[ $OSTYPE == darwin* ]] && { arp $1 2>/dev/null; return; };
+    # 'arp' is net-tools, which is not preinstalled on Linux; prefer iproute2.
+    which ip >/dev/null 2>&1 && ip neigh show "$1" 2>/dev/null || \
+        arp -n "$1" 2>/dev/null | tr "[:upper:]" "[:lower:]"
+}
+
+# Clear the ARP (neighbour) cache.
+__arp_flush () {
+    [[ $OSTYPE == darwin* ]] && { sudo arp -ad >/dev/null 2>&1; return; };
+    which ip >/dev/null 2>&1 && ip neigh flush all >/dev/null 2>&1 || \
+        arp -n | awk 'NR>1 {system("arp -d "$1)}' >/dev/null 2>&1
+}
+
 # For _xlib_ip.
 __ip_find () {
     [ "$1" ] || exit 1; # MAC address or host name is empty.
 
     # Clear the ARP cache.
-    [[ $OSTYPE == darwin* ]] && {
-        sudo arp -ad >/dev/null 2>&1 || return 1;
-        :
-    } || arp -n | awk 'NR>1 {system("arp -d "$1)}' || return 1;
+    __arp_flush;
 
     local i j max_len=0 r key mac range route_ip;
 
@@ -1387,9 +1436,11 @@ __ip_find () {
 
     # fork: Resource temporarily unavailable
     function __match_mac () {
-        local i j key;
-        ping -c 2 -t 2 $1 >/dev/null 2>&1;
-        j=`arp $1 2>/dev/null`;
+        local i j key t="-W 2";
+        # macOS 'ping -t' is a timeout; Linux 'ping -t' is the TTL and the timeout is '-W'.
+        [[ $OSTYPE == darwin* ]] && t="-t 2";
+        ping -c 2 $t $1 >/dev/null 2>&1;
+        j=`__arp_show $1`;
         for mac_addr in ${mac_addr_arr[@]}; do
             # Cache the key.
             key=${mac_addr%%@*};
@@ -1433,10 +1484,7 @@ __ip_find () {
     done
 
     # Clear the ARP cache.
-    [[ $OSTYPE == darwin* ]] && {
-        sudo arp -ad >/dev/null 2>&1 || return 1;
-        :
-    } || arp -n | awk 'NR>1 {system("arp -d "$1)}' || return 1;
+    __arp_flush;
 
 }
 
@@ -1536,15 +1584,27 @@ _xlib_vnc () {
 ### Usage: httpd PORT [FILE]
 _xlib_httpd () {
     _xlib_inum $1 || exit 1; # Argument is not a port.
+    which nc >/dev/null 2>&1 || which ncat >/dev/null 2>&1 || exit 1; # The nc command was not found.
     if [ -s "$2" ]; then
         {
             printf "HTTP/1.1 200 OK\n\n";
             cat "$2";
-        } | nc -l $1
+        } | __httpd_listen $1
     else
-        printf "HTTP/1.1 200 OK\n\nNETCAT\n" | nc -l $1
+        printf "HTTP/1.1 200 OK\n\nNETCAT\n" | __httpd_listen $1
 
     fi
+}
+
+# Listen on a port and print the request; pick the arguments of the local netcat.
+__httpd_listen () {
+    local port=$1 bin=ncat opt="-l";
+    # GNU netcat and busybox need '-l -p PORT'; BSD/OpenBSD netcat takes '-l PORT'.
+    which ncat >/dev/null 2>&1 || {
+        bin=nc;
+        case `nc -h 2>&1` in *GNU*|*[Bb]usy[Bb]ox*) opt="-l -p";; esac
+    };
+    $bin $opt "$port"
 }
 
 ### Test whether STRING is a number
@@ -1621,6 +1681,32 @@ _xlib_plist () {
 #     [ -f "$1" ] || return 1;
 #     printf $(( (`date +%s` - `stat -f "%a" "$1"`) / 60 / 60 ))
 # }
+
+# Load the .*.ini config.
+__load_ini () {
+    [ "$1" ] || return 1;
+    local line is_catch=false;
+    while read line; do
+        [ "$line" == "" ] && continue;
+        if [ "${line/=/}" == "$line" ]; then
+            [ "$line" == "[$1]" ] && is_catch=true || is_catch=false;
+        elif $is_catch; then
+            _map $2 --put ${line%%=*} ${line#*=} >/dev/null
+        fi
+    done < <(cat "$(__script_dir)"/.*.ini ~/.*.ini 2>/dev/null | awk -F \; 'gsub(/\r|\\$/, ""); gsub(/\\/, "\\\\"); {print $1}' | uniq);
+
+    # # read environment variable
+    # while read line; do
+    #     [ "$line" == "" -o "${line/=/}" == "$line" ] && continue;
+    #     _xlib_ip --test ${line#*=} || {
+    #         __imac ${line#*=} || continue
+    #     };
+    #     _map $2 --put "${line%%=*}" "${line#*=}" >/dev/null;
+    # done < <(set);
+
+   [ `_map $2 --size` == 0 ] && return 1;
+   return 0
+}
 
 ### Shell completion, auto-generated from annotations
 ### Usage: comp [OPTION]...
@@ -1703,11 +1789,11 @@ _func_err () {
     # WARNING: 0 <= $? <= 255; return 256 gives $? = 0.
     [ "$4" == "return" ] && exit $(($5 % 256));
 
-    # Get the script line.
+    # A command was not found: the dispatch of an unknown command, or a missing
+    # external command.
     [ $1 == 127 ] && {
-        # No function found.
-        printf "\033[31mError: No function found \033[0m\n" >&2;
-        exit 1
+        [[ $4 == *'${0##*/}'* ]] && { printf "\033[31mError: No function found \033[0m\n" >&2; exit 1; };
+        printf "\033[31mError: Command not found: %s \033[33m($0:$2)\033[0m\n" "$4" >&2; exit 127
     };
 
     exit 0
@@ -1774,7 +1860,13 @@ _func_annotation () {
 }
 
 # Cache and exit.
-trap '_func_err $? $LINENO $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
+# bash >= 4.1 resets $LINENO to 1 inside an EXIT trap, so track the real line with
+# a DEBUG trap there; older bash (the 3.2 shipped with macOS) reports it directly.
+[ "${BASH_VERSINFO[0]}" -gt 4 -o "${BASH_VERSINFO[0]}" -eq 4 -a "${BASH_VERSINFO[1]}" -ge 1 ] && {
+    set -T;
+    trap 'case $LINENO in 1|"") :;; *) __err_line=$LINENO;; esac' DEBUG
+};
+trap '_func_err $? "${__err_line:-$LINENO}" $BASH_LINENO $BASH_COMMAND ${FUNCNAME[@]}' EXIT
 
 # # # # # # # # # # # # # # # # # # # # # # # # #
 #                   Framework                   #
