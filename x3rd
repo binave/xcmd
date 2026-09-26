@@ -189,10 +189,67 @@ _x3rd_git () {
         --update-all|-ua)
             find . -iname ".git" | while read dir; do printf "[INFO] \e[32m%s\x1b[0m\n" "${dir%/.git}"; git --git-dir=$dir --work-tree=${dir%/.git} pull; done;
         ;;
+        ###   -id, --install-doc   install the 'doc' alias to ~/.gitconfig
+        --install-doc|-id)
+            which git >/dev/null 2>&1 || exit 1; # The git command was not found.
+            local config=$HOME/.gitconfig doc_current doc_block;
+            [ -f "$config" ] || : > "$config";
+            # Keep the repository documentation in a sibling git repository; the
+            # paths come from [.docpathspec], or all '*.md' when it is missing.
+            IFS= read -r -d '' doc_block <<'DOC'
+    doc = "!f() { \
+      root=\"$(git rev-parse --show-toplevel)\" || exit 1; repo=\"$(git rev-parse --show-superproject-working-tree 2>/dev/null)\"; \
+      [ -n \"$repo\" ] && repo=\"$repo.${root##*/}\"; repo=\"${repo:-$root}.docs.git\"; spec=\"$root/.docpathspec\"; case $1 in \
+      status|add) cmd=$1; shift; [ \"$1\" = -- ] && { shift; exec git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" \"$@\"; }; \
+      [ \"$cmd\" = status ] && opt='-uall --ignored=matching' || opt='-f'; \
+      [ -f \"$spec\" ] || { git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt -- ':(glob)**/*.md'; return; }; \
+      set -- --; while IFS= read -r line; do case \"$line\" in ''|'#'*) ;; *) set -- \"$@\" \"$line\";; esac; done < \"$spec\"; \
+      [ \"$cmd\" = add ] && git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt -- ':(top).docpathspec'; \
+      git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt \"$@\";; \
+      clone) tmp=\"$(mktemp -d 2>/dev/null).$$.git\"; git clone --no-checkout --separate-git-dir=\"$repo\" \"$2\" \"$tmp\" || :; rm -fr \"$tmp\";; \
+      *) git --git-dir=\"$repo\" --work-tree=\"$root\" \"$@\";; esac; \
+    }; f"
+DOC
+            doc_block=${doc_block%$'\n'};
+            doc_current=$(awk '/^[[:space:]]*doc[[:space:]]*=/{p=1} p{print; if ($0 !~ /\\$/) exit}' "$config");
+            [ "$doc_current" == "$doc_block" ] && {
+                printf "exist: alias.doc\n";
+                return 0
+            };
+            __git_install_doc "$config" "$doc_block" || exit 1; # Failed to install the 'doc' alias.
+            printf "install: alias.doc -> %s\n" "$config"
+        ;;
         *)
             exit 1; # Invalid option.
         ;;
     esac;
+}
+
+# Replace the [doc] alias in the [alias] section of the git config with [block].
+__git_install_doc () {
+    local config=$1 block=$2 tmp="${1}.$$";
+    BLOCK="$block" awk '
+        # Drop the previous doc entry, including its continuation lines.
+        skip { if ($0 ~ /\\$/) next; skip=0; next }
+        /^[[:space:]]*doc[[:space:]]*=/ { if ($0 ~ /\\$/) skip=1; next }
+        # Insert the block after the [alias] section header.
+        /^[[:space:]]*\[alias\][[:space:]]*$/ { print; printf "%s\n", ENVIRON["BLOCK"]; seen=1; next }
+        { print }
+        END {
+            if (!seen) {
+                if (NR) printf "\n";
+                printf "[alias]\n%s\n", ENVIRON["BLOCK"]
+            }
+        }
+    ' "$config" > "$tmp" || {
+        rm -f "$tmp";
+        return 1
+    };
+    mv -f "$tmp" "$config" || {
+        rm -f "$tmp";
+        return 1
+    };
+    return 0
 }
 
 # ### VirtualBox Manage (Not complete) ##Usage: vbox [start|stop|stopall] ##
