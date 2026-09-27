@@ -26,6 +26,44 @@
 #       __comp_value_host  print the candidates of a kind the engine does not know
 #   In the hooks, ordering, dedupe and any config loading are the host's business;
 #   the engine only drops candidates that repeat across kinds.
+#
+#   A command or a case branch that runs on one platform only carries a platform
+#   tag at the end of its annotation line: [macOS] or [Linux].  The tag shows up
+#   in the host help, while [comp --bash] / [comp --zsh] leave the entry out when
+#   the running platform does not match.  See [comp --list PLATFORM].
+
+# Platform tags; a tag is the last word of an annotation line and is not case
+# sensitive: 'Volume info or edit [macOS]' -> macos
+__comp_tag () {
+    local t=${1##* };
+    case $t in
+        \[[Mm][Aa][Cc][Oo][Ss]\]|\[[Dd][Aa][Rr][Ww][Ii][Nn]\]) printf macos;;
+        \[[Ll][Ii][Nn][Uu][Xx]\]) printf linux;;
+        *) :;;
+    esac
+}
+
+# Print a tag that looks like a platform but is not one, e.g. [windows].
+__comp_tag_bad () {
+    local t=${1##* } u;
+    case $t in \[*\]) :;; *) return 1;; esac
+    t=${t#[}; t=${t%]};
+    u=`printf "%s" "$t" | tr "[:lower:]" "[:upper:]"`;
+    case $u in
+        MACOS|DARWIN|LINUX) return 1;;
+        MAC|OSX|MACOSX|WINDOWS|WIN|WIN32|WIN64|BSD|UNIX|FREEBSD|OPENBSD|ANDROID) printf "%s" "$t";;
+        *) return 1;;
+    esac
+}
+
+# Print the platform of the running system: macos, linux or other.
+__comp_os () {
+    case $OSTYPE in
+        darwin*) printf macos;;
+        linux*)  printf linux;;
+        *)       printf other;;
+    esac
+}
 
 # Print option help; align the description like GNU --help.
 __annot_print () {
@@ -71,7 +109,7 @@ __annot_print () {
 #   An indented [###] annotates the next [case] pattern
 #   [###] is reserved for annotation; any other comment must use [#]
 __annot_scan () {
-    local line trim text pattern cmd= depth=0 i= u=;
+    local line trim text pattern cmd= depth=0 i= u= platform= t=;
     local -a cmd_ann=() op_ann=();
     while IFS= read -r line; do
         trim=${line#"${line%%[![:space:]]*}"};
@@ -94,6 +132,14 @@ __annot_scan () {
         if [ ${#op_ann[@]} -gt 0 ]; then
             if [ "$cmd" ] && [ $depth -ge 1 ] && [ "${trim:0-1}" == ")" ]; then
                 pattern=${trim%)};
+                platform=;
+                for text in "${op_ann[@]}"; do
+                    # Only a last word like [macOS] can be a tag.
+                    t=${text##* };
+                    case $t in '['*']') platform=$(__comp_tag "$text"); [ "$platform" ] && break;; esac
+                done
+                # The tag applies to the whole case branch; it precedes its [O] lines.
+                printf 'Q\t%s\t%s\t%s\n' "$cmd" "$pattern" "${platform:--}";
                 for text in "${op_ann[@]}"; do printf 'O\t%s\t%s\t%s\n' "$cmd" "$pattern" "$text"; done
             else
                 for text in "${op_ann[@]}"; do printf 'W\t.\t.\t%s\n' "$text"; done
@@ -113,6 +159,12 @@ __annot_scan () {
                         esac
                     done
                     [ $u -gt 1 ] && for ((i=0; i<u - 1; i++)); do printf 'W\t.\t.\t%s\n' "${cmd_ann[$i]}"; done
+                    # The platform tag of the brief precedes the [C] lines of the command.
+                    i=$((u > 0 ? u - 1 : 0));
+                    text=${cmd_ann[$i]};
+                    t=${text##* };
+                    case $t in '['*']') platform=$(__comp_tag "$text");; *) platform=;; esac
+                    printf 'P\t%s\t.\t%s\n' "$cmd" "${platform:--}";
                     for ((i=(u > 0 ? u - 1 : 0); i<${#cmd_ann[@]}; i++)); do printf 'C\t%s\t.\t%s\n' "$cmd" "${cmd_ann[$i]}"; done
                     cmd_ann=(); depth=0;
                     continue
@@ -155,17 +207,25 @@ __comp_tokens () {
 }
 
 # Scan the annotation and print: [command] [TAB] [option=kind,...]... [TAB] [operand kind,...]
+# The platform is the running one by default; [macos], [linux] and [all] are accepted.
 __comp_scan () {
-    local kind cmd key text types t;
-    local cur= optspec= poskinds= lastpat=;
+    local os=${1:-} kind cmd key text types t;
+    local cur= optspec= poskinds= lastpat= supported= skip=;
+    case $os in
+        macos|linux|all) :;;
+        *) os=$(__comp_os);;
+    esac
     while IFS=$'\t' read -r kind cmd key text; do
         [ "$kind" == "W" ] && continue;
         [ "$cmd" ] || continue;
         if [ "$cmd" != "$cur" ]; then
-            [ "$cur" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds";
-            cur=$cmd; optspec=; poskinds=; lastpat=;
+            [ "$cur" ] && [ "$supported" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds";
+            cur=$cmd; optspec=; poskinds=; lastpat=; supported=true; skip=;
         fi
         case $kind in
+            P) [ "$text" == "-" -o "$os" == all -o "$os" == "$text" ] || supported=;;
+            # The platform of the case branch; it is consumed by the first [O] line.
+            Q) case $text in -) skip=;; *) skip=$text;; esac;;
             C)
                 case $text in
                     Usage:*)
@@ -176,6 +236,10 @@ __comp_scan () {
             O)
                 [ "$key" == "$lastpat" ] && continue;
                 lastpat=$key;
+                if [ "$skip" ]; then
+                    [ "$os" == all -o "$os" == "$skip" ] || { skip=; continue; }
+                fi
+                skip=;
                 types=$(__comp_type "$(__comp_spec "$text")");
                 if [ "$key" == "*" ]; then
                     poskinds=$(__comp_kinds "$poskinds ${types//,/ }")
@@ -185,12 +249,12 @@ __comp_scan () {
             ;;
         esac
     done < <(__annot_scan);
-    [ "$cur" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds"
+    [ "$cur" ] && [ "$supported" ] && printf '%s;%s;%s\n' "$cur" "${optspec# }" "$poskinds"
 }
 
 # Check the annotation and print warnings.
 __comp_check () {
-    local kind cmd key text last= usage= warn=;
+    local kind cmd key text last= usage= warn= bad=;
     while IFS=$'\t' read -r kind cmd key text; do
         case $kind in
             C)
@@ -202,8 +266,14 @@ __comp_check () {
                     Usage:*) usage=$cmd;;
                 esac
             ;;
+            O|P) :;;
             W) printf 'WARN: unbound annotation: %s\n' "$text"; warn=true;;
         esac
+        # Only [macOS] and [Linux] are platform tags.
+        case $kind in C|O)
+            bad=$(__comp_tag_bad "$text");
+            [ "$bad" ] && { printf 'WARN: %s: unknown platform tag: [%s]\n' "$cmd" "$bad"; warn=true; };
+        ;; esac
     done < <(__annot_scan);
     [ "$last" ] && [ "$usage" != "$last" ] && { printf 'WARN: %s: no Usage line\n' "$last"; warn=true; };
     [ "$warn" ] && return 1;

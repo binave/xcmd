@@ -168,9 +168,25 @@ xlib comp --zsh
 xlib comp --check
 ```
 
-`xlib comp -i` 会生成补全文件，并在 `~/.bashrc` 或 `~/.zshrc` 缺少 source 行时自动补上（zsh 下该行必须在 `compinit` 之后），然后重启 shell 生效；脚本删改后重新执行一次 `xlib comp -i` 即可。参数值同样可补齐，例如 `wol <TAB>` 可补全 `[hosts]` 别名、MAC 地址和本机 IPv4。若补全退化成当前目录，说明 rc 没有加载补全文件。
+`xlib comp -i` 会生成补全文件，并在 `~/.bashrc` 或 `~/.zshrc` 缺少 source 行时自动补上（zsh 下该行必须在 `compinit` 之后），然后重启 shell 生效；脚本删改后重新执行一次 `xlib comp -i` 即可。参数值同样可补齐：`wol <TAB>` 补全 `[hosts]` 别名以及只存在于 `/etc/hosts` 的 IP，`wol -b <TAB>` 补全别名与本机 IPv4，`ip -f <TAB>` 补全 MAC 地址与别名。若补全退化成当前目录，说明 rc 没有加载补全文件。
 
-帮助与补全共用一份"贴着代码"的注解：命令上方放 `###` 块，每个 `case` 分支上方放缩进的 `###` 行，采用 GNU 风格（`-o, --option=FILE`、`NAME=TYPE`）。元变量决定补全来源：`FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND`（`HOSTIP` 指 `/etc/hosts` 里有、但 `[hosts]` ini 里没有的 IP），`{a|b}` 表示枚举。`###` 专用于注解，其它注释请用 `#`，否则 `xlib comp --check` 会告警。引擎位于 `comp.xlib`，由 `xlib` 与 `x3rd` 共用；`x3rd` 的补全用 `x3rd comp -i` 安装。
+帮助与补全共用一份"贴着代码"的注解：命令上方放 `###` 块，每个 `case` 分支上方放缩进的 `###` 行，采用 GNU 风格（`-o, --option=FILE`、`NAME=TYPE`）。元变量决定补全来源；`xlib` 支持 `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND`（`HOSTIP` 指 `/etc/hosts` 里有、但 `[hosts]` ini 里没有的 IP），`{a|b}` 表示枚举。`###` 专用于注解，其它注释请用 `#`，否则 `xlib comp --check` 会告警。通用引擎位于 `comp.xlib`，由 `xlib` 与 `x3rd` 共用；各宿主用 `__COMP_KINDS`、`__comp_kind_host`、`__comp_value_host` 声明自己的类型与候选，因此 `x3rd` 只补全通用类型。`x3rd` 的补全用 `x3rd comp -i` 安装。
+
+只在单一平台存在的命令或选项，用注解行尾的短标记标注——`### Volume info or edit [macOS]`，或 `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`。无参列表与 `-h` 会把标记对齐显示在单独一列，而 `comp -i` / `comp --bash` / `comp --zsh` 会跳过与当前平台不匹配的项。`xlib comp --list 平台` 可查看 `macos`、`linux` 或 `all` 的解析结果。
+
+### Clink 自动补齐（Windows）
+
+`xlib.cmd` 和 `x3rd.cmd` 的 Clink 补全由 `x3rd comp` 生成并安装：
+
+```batch
+:: 为 xlib.cmd 和 x3rd.cmd 生成并安装补全
+x3rd comp -i
+
+:: 检查注解并输出告警
+x3rd comp --check
+```
+
+补全覆盖命令、选项和参数值，与 `--help` 共用同一份 `:::` 注解自动生成；GNU 风格元变量决定补全来源（`FILE IMAGE PATH DIRECTORY DIR DEVICE ADDRESS IP IPV4 MAC HOST ALIAS HOSTIP SHELL KIND`），`{a|b}` 表示枚举。生成器是一个 Lua 程序，因此放在 `x3rd.cmd` 中——`xlib.cmd` 仍只用第一方工具。它以带标签的子文档形式内嵌在 `x3rd.cmd` 末尾，沿用 `xlib.cmd` 已有的 `::tag:` 配置内嵌方案（用于 `.inf`/`.xml`/`.ini` 子文档），并运行在 Clink 自带的 Lua 引擎上（`clink lua`），无需另外安装 Lua 解释器。需要 Windows 和 [Clink](https://github.com/chrisant996/clink)。
 
 ### Microsoft Office 部署（Windows）
 
@@ -220,6 +236,7 @@ xlib kms -o 192.168.1.1
 
 - 支持在 `for /f` 命令中使用（进行判断操作时需要使用 `call` 命令）
 - 函数名自动补全（从左到右逐字符匹配）
+- Clink 补全支持 `xlib.cmd` 和 `x3rd.cmd` 的命令、选项和参数值（`x3rd comp -i`）
 - 简单的多进程控制支持（如 `hosts` 函数）
 - 虚拟磁盘控制、WIM 文件操作、字符串操作、哈希计算
 - 通过 `xlib vbs` 命令调用 VBS 脚本进行下载和转码等操作

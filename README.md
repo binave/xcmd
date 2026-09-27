@@ -170,9 +170,25 @@ xlib comp --zsh
 xlib comp --check
 ```
 
-`xlib comp -i` writes the completion file and appends the `source` line to `~/.bashrc` or `~/.zshrc` when it is missing (for zsh the line must come after `compinit`), then restart the shell. Re-run `xlib comp -i` after the script is edited. Argument values are completed too, e.g. `wol <TAB>` completes `[hosts]` aliases, MAC addresses and local IPv4. If completion falls back to the current directory, the completion file is not loaded by your rc.
+`xlib comp -i` writes the completion file and appends the `source` line to `~/.bashrc` or `~/.zshrc` when it is missing (for zsh the line must come after `compinit`), then restart the shell. Re-run `xlib comp -i` after the script is edited. Argument values are completed too: `wol <TAB>` completes `[hosts]` aliases and the IPs that exist only in `/etc/hosts`, `wol -b <TAB>` completes aliases and local IPv4, and `ip -f <TAB>` completes MAC addresses and aliases. If completion falls back to the current directory, the completion file is not loaded by your rc.
 
-Help and completion share one annotation next to the code: a `###` block above the command, and an indented `###` line above each `case` branch, using GNU style (`-o, --option=FILE`, `NAME=TYPE`). The metavariable names the completion source: `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND` (`HOSTIP` is an IP in `/etc/hosts` that is not in the `[hosts]` ini), and `{a|b}` is an enumeration. `###` is reserved for annotation — any other comment must use `#`, otherwise `xlib comp --check` will report it. The engine lives in `comp.xlib` and is shared by `xlib` and `x3rd`; use `x3rd comp -i` for the `x3rd` completion.
+Help and completion share one annotation next to the code: a `###` block above the command, and an indented `###` line above each `case` branch, using GNU style (`-o, --option=FILE`, `NAME=TYPE`). The metavariable names the completion source; `xlib` supports `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND` (`HOSTIP` is an IP in `/etc/hosts` that is not in the `[hosts]` ini), and `{a|b}` is an enumeration. `###` is reserved for annotation — any other comment must use `#`, otherwise `xlib comp --check` will report it. The generic engine lives in `comp.xlib` and is shared by `xlib` and `x3rd`; a host declares its own vocabulary and candidates with `__COMP_KINDS`, `__comp_kind_host` and `__comp_value_host`, so `x3rd` completes only the generic kinds. Use `x3rd comp -i` for the `x3rd` completion.
+
+### Clink Completion (Windows)
+
+Clink completion for both `xlib.cmd` and `x3rd.cmd` is generated and installed by `x3rd comp`:
+
+```batch
+:: Generate and install the completion for xlib.cmd and x3rd.cmd
+x3rd comp -i
+
+:: Check the annotation, print warnings
+x3rd comp --check
+```
+
+It completes commands, options and argument values, auto-generated from the same `:::` annotations that already provide `--help`; the GNU-style metavariable names the completion source (`FILE IMAGE PATH DIRECTORY DIR DEVICE ADDRESS IP IPV4 MAC HOST ALIAS HOSTIP SHELL KIND`), and `{a|b}` is an enumeration. The generator is a Lua program, so it lives in `x3rd.cmd` — `xlib.cmd` stays first-party tools only. It is embedded at the end of `x3rd.cmd` as a tagged subdocument, following the same `::tag:` config-embedding scheme that `xlib.cmd` already uses for its `.inf`/`.xml`/`.ini` subdocuments, and it runs on the Lua engine that Clink itself embeds (`clink lua`), so no separate Lua interpreter needs to be installed. Requires Windows and [Clink](https://github.com/chrisant996/clink).
+
+A command or an option that exists on one platform only is marked with a short tag at the end of its annotation line — `### Volume info or edit [macOS]`, or `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`. The no-argument list and `-h` show the tag in a column of its own, while `comp -i` / `comp --bash` / `comp --zsh` skip every entry that does not match the running platform. `xlib comp --list PLATFORM` prints the parsed metadata for `macos`, `linux` or `all`.
 
 ### Microsoft Office Deployment (Windows)
 
@@ -222,6 +238,7 @@ Transfer small files/folders via RDP clipboard (for older Windows versions):
 
 - Supports use in `for /f` commands (use `call` for conditional operations)
 - Function name auto-completion (matches characters from left to right)
+- Clink completion for `xlib.cmd` and `x3rd.cmd` commands, options and argument values (`x3rd comp -i`)
 - Multi-process control support (e.g., `hosts` function)
 - Virtual disk control, WIM file manipulation, string operations, hash calculation
 - VBS script integration via `xlib vbs` command for downloads and transcoding

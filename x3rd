@@ -60,6 +60,9 @@ __SELF_DIR=$(__script_dir)
 #     The metavariable names the completion source:
 #         FILE IMAGE DIRECTORY DEVICE PATH SHELL KIND
 #         {a|b} is an enumeration, e.g., {yes|no}
+#     A platform tag at the end of an annotation line marks it as platform specific:
+#         [macOS] or [Linux]; the tag is shown in help and skipped by completion
+#         on the other platform.
 #
 #     [###] is reserved for annotation; any other comment must use [#]:
 #         Use [comp --check] to check the annotations.
@@ -847,7 +850,7 @@ _m2_download () {
     return 0
 }
 
-### Virtual machine controller
+### Virtual machine controller [macOS]
 ### Usage: vm {list|start}
 _x3rd_vm () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -938,10 +941,10 @@ _x3rd_comp () {
             shift;
             __comp_value "$@"
         ;;
-        ###   -l, --list   print the parsed completion metadata
+        ###   -l, --list[={macos|linux|all}]   print the parsed completion metadata
         --list|-l)
             shift;
-            __comp_scan | tr ';' '\t'
+            __comp_scan "${1:-}" | tr ';' '\t'
         ;;
         ###   -c, --check   check annotation and print warnings
         --check|-c)
@@ -1001,6 +1004,7 @@ _func_annotation () {
             found=true;
             case $kind in
                 O) opt_lines[${#opt_lines[@]}]="$text";;
+                P|Q) :;;
                 *) cmd_lines[${#cmd_lines[@]}]="$text";;
             esac
         done < <(__annot_scan);
@@ -1036,14 +1040,39 @@ _func_annotation () {
         return 0
 
     else
-        # Show all commands; the first line of each command annotation is the brief.
+        # Show all commands; the first line of each command annotation is the brief,
+        # and its [macOS] / [Linux] tag is aligned in a column of its own.
+        local platform= width=0 brief i;
+        local -a cmd_arr=() brief_arr=() tag_arr=();
         while IFS=$'\t' read -r kind cmd key text; do
-            [ "$kind" == "C" ] || continue;
-            [ "$cmd" == "$last" ] && continue;
-            last=$cmd;
-            # Left aligned at 15 characters.
-            printf "%-15s%s\n" "$cmd" "$text";
+            case $kind in
+                P) platform=$text;;
+                C)
+                    [ "$cmd" == "$last" ] && continue;
+                    last=$cmd;
+                    if [ "$platform" == "-" ]; then
+                        brief=$text;
+                    else
+                        # The tag is the last word of the brief.
+                        brief=${text% *};
+                        [ "$brief" == "$text" ] && brief=;
+                        [ ${#brief} -gt $width ] && width=${#brief};
+                    fi
+                    cmd_arr[${#cmd_arr[@]}]="$cmd";
+                    brief_arr[${#brief_arr[@]}]="$brief";
+                    tag_arr[${#tag_arr[@]}]="$platform";
+                ;;
+            esac
         done < <(__annot_scan)
+        width=$((width + 2));
+        for ((i=0; i<${#cmd_arr[@]}; i++)); do
+            case ${tag_arr[$i]} in
+                macos) printf "%-15s%-*s[macOS]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
+                linux) printf "%-15s%-*s[Linux]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
+                # Left aligned at 15 characters.
+                *)     printf "%-15s%s\n" "${cmd_arr[$i]}" "${brief_arr[$i]}";;
+            esac
+        done
     fi
 
 }

@@ -63,6 +63,10 @@ __SELF_DIR=$(__script_dir)
 #         The kinds of this host are declared by __COMP_KINDS, __comp_kind_host and
 #         __comp_value_host; the generic engine lives in comp.xlib.
 #
+#     A platform tag at the end of an annotation line marks it as platform specific:
+#         [macOS] or [Linux]; the tag is shown in help and skipped by completion
+#         on the other platform.
+#
 #     [###] is reserved for annotation; any other comment must use [#]:
 #         Use [comp --check] to check the annotations.
 
@@ -98,7 +102,7 @@ _xlib_cur () {
     esac
 }
 
-### Create or convert a package file
+### Create or convert a package file [macOS]
 ### Usage: pkg [OPTION]... [PATH]
 _xlib_pkg () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -603,7 +607,7 @@ __remote_tar () {
     return 0
 }
 
-### Operating system settings, macOS only
+### Operating system settings [macOS]
 ### Usage: oset [OPTION]... [ARG]...
 _xlib_oset () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -854,7 +858,7 @@ _xlib_cert () {
     esac
 }
 
-### Display device driver info
+### Display device driver info [macOS]
 ### Usage: drv [OPTION]
 _xlib_drv () {
     case $1 in
@@ -917,7 +921,7 @@ _xlib_hash () {
     done
 }
 
-### Volume info or edit
+### Volume info or edit [macOS]
 ### Usage: vol [OPTION]... [ARG]...
 _xlib_vol () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -998,7 +1002,7 @@ _xlib_vol () {
 ### Usage: dir [OPTION]... [ARG]...
 _xlib_dir () {
     case $1 in
-        ###   -uh, --unhidden=DIRECTORY   clear the hidden flag on all entries in DIRECTORY
+        ###   -uh, --unhidden=DIRECTORY   clear the hidden flag on all entries in DIRECTORY [macOS]
         --unhidden|-uh)
             shift;
             [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -1006,7 +1010,7 @@ _xlib_dir () {
             chflags nohidden "$1"/*;
             sudo spctl --master-disable;
         ;;
-        ###   -lcdi, --list-container-data-info   print container metadata
+        ###   -lcdi, --list-container-data-info   print container metadata [macOS]
         --list-container-data-info|-lcdi)
             # TODO: OSTYPE?
             local i;
@@ -1028,7 +1032,7 @@ _xlib_dir () {
             sudo chmod -R 644 "$arg/*"
             sudo find "$arg" -type d -exec chmod 755 {} \;
         ;;
-        ###   --boot=DIRECTORY   rebuild the boot file in DIRECTORY
+        ###   --boot=DIRECTORY   rebuild the boot file in DIRECTORY [macOS]
         --boot)
             [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
             shift;
@@ -1047,7 +1051,7 @@ _xlib_dir () {
             # ls -alR "$1" 2>/dev/null | grep -c '^-'
             find "$1" -type f | grep -c '/'
         ;;
-        ###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY
+        ###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]
         --unique|-u)
             [[ $OSTYPE == darwin* ]] && exit 1; # Not supported on macOS (OS X).
             shift;
@@ -1233,7 +1237,7 @@ _xlib_str () {
     esac
 }
 
-### Show CPU times
+### Show CPU times [Linux]
 ### Usage: cpu
 _xlib_cpu () {
     [[ $OSTYPE == darwin* ]] && exit 1; # Not supported on macOS (OS X).
@@ -1573,7 +1577,7 @@ _xlib_hosts () {
 #     return 0
 # }
 
-### Connect to a VNC server
+### Connect to a VNC server [macOS]
 ### Usage: vnc ADDRESS[:PORT]
 _xlib_vnc () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -1625,7 +1629,7 @@ _xlib_prefix () {
     _prefix "$@"
 }
 
-### Plist editor
+### Plist editor [macOS]
 ### Usage: plist [OPTION]... FILE
 _xlib_plist () {
     [[ $OSTYPE == darwin* ]] || exit 1; # Only macOS (OS X) is supported.
@@ -1794,10 +1798,10 @@ _xlib_comp () {
             shift;
             __comp_value "$@"
         ;;
-        ###   -l, --list   print the parsed completion metadata
+        ###   -l, --list[={macos|linux|all}]   print the parsed completion metadata
         --list|-l)
             shift;
-            __comp_scan | tr ';' '\t'
+            __comp_scan "${1:-}" | tr ';' '\t'
         ;;
         ###   -c, --check   check annotation and print warnings
         --check|-c)
@@ -1873,6 +1877,7 @@ _func_annotation () {
             found=true;
             case $kind in
                 O) opt_lines[${#opt_lines[@]}]="$text";;
+                P|Q) :;;
                 *) cmd_lines[${#cmd_lines[@]}]="$text";;
             esac
         done < <(__annot_scan);
@@ -1908,14 +1913,39 @@ _func_annotation () {
         return 0
 
     else
-        # Show all commands; the first line of each command annotation is the brief.
+        # Show all commands; the first line of each command annotation is the brief,
+        # and its [macOS] / [Linux] tag is aligned in a column of its own.
+        local platform= width=0 brief i;
+        local -a cmd_arr=() brief_arr=() tag_arr=();
         while IFS=$'\t' read -r kind cmd key text; do
-            [ "$kind" == "C" ] || continue;
-            [ "$cmd" == "$last" ] && continue;
-            last=$cmd;
-            # Left aligned at 15 characters.
-            printf "%-15s%s\n" "$cmd" "$text";
+            case $kind in
+                P) platform=$text;;
+                C)
+                    [ "$cmd" == "$last" ] && continue;
+                    last=$cmd;
+                    if [ "$platform" == "-" ]; then
+                        brief=$text;
+                    else
+                        # The tag is the last word of the brief.
+                        brief=${text% *};
+                        [ "$brief" == "$text" ] && brief=;
+                        [ ${#brief} -gt $width ] && width=${#brief};
+                    fi
+                    cmd_arr[${#cmd_arr[@]}]="$cmd";
+                    brief_arr[${#brief_arr[@]}]="$brief";
+                    tag_arr[${#tag_arr[@]}]="$platform";
+                ;;
+            esac
         done < <(__annot_scan)
+        width=$((width + 2));
+        for ((i=0; i<${#cmd_arr[@]}; i++)); do
+            case ${tag_arr[$i]} in
+                macos) printf "%-15s%-*s[macOS]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
+                linux) printf "%-15s%-*s[Linux]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
+                # Left aligned at 15 characters.
+                *)     printf "%-15s%s\n" "${cmd_arr[$i]}" "${brief_arr[$i]}";;
+            esac
+        done
     fi
 
 }
