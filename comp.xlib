@@ -13,9 +13,19 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-# Shared shell completion, sourced by xlib / x3rd.
+# Shared shell completion engine, sourced by a host script such as xlib / x3rd.
 #   Scan the annotation of the host script ($0) and generate bash / zsh completion.
-#   Entry: __comp_main [OPTION].
+#   Entry: the [comp] command of the host, which sources this file and dispatches
+#   to the __comp_* functions below.
+#
+#   The engine knows only the generic kinds (FILE, DIRECTORY, SHELL, KIND, ...).
+#   The host declares its own vocabulary and candidates by defining these hooks
+#   before this file is loaded:
+#       __COMP_KINDS       the kind vocabulary printed by [comp --value KIND]
+#       __comp_kind_host   print the kinds of a metavariable the engine does not know
+#       __comp_value_host  print the candidates of a kind the engine does not know
+#   In the hooks, ordering, dedupe and any config loading are the host's business;
+#   the engine only drops candidates that repeat across kinds.
 
 # Print option help; align the description like GNU --help.
 __annot_print () {
@@ -248,8 +258,12 @@ __comp_usage () {
     printf "%s" "$(__comp_kinds "$kinds")"
 }
 
-# Kinds accepted by [comp --value]; keep in sync with __comp_kind.
-__COMP_KINDS="alias mac ipv4 hostip shell kind";
+# Kinds implemented by this engine; the host may replace the list with its own.
+: "${__COMP_KINDS:=shell kind}"
+
+# Host hooks; the fallbacks keep the engine working on its own.
+type __comp_kind_host  >/dev/null 2>&1 || __comp_kind_host  () { :; }
+type __comp_value_host >/dev/null 2>&1 || __comp_value_host () { :; }
 
 # Map a GNU metavariable to completion kinds.
 __comp_kind () {
@@ -261,14 +275,9 @@ __comp_kind () {
         DIRECTORY|DIR)    printf dir;;
         DEVICE)           printf dir;;
         PATH)             printf file;;
-        HOST)             printf alias,ipv4;;
-        ADDRESS|IP|IPV4)  printf ipv4;;
-        MAC)              printf mac;;
-        ALIAS)            printf alias;;
-        HOSTIP)           printf hostip;;
         SHELL)            printf shell;;
         KIND)             printf kind;;
-        *) :;;
+        *)                __comp_kind_host "$s";;
     esac
 }
 
@@ -286,67 +295,24 @@ __comp_kinds () {
 
 # Print candidates by kind; kinds are split with ','.
 __comp_value_kind () {
-    # [hosts] ini must be loaded in map0 by the caller.
-    local kind=$1 i j ini=;
+    local kind=$1 i j;
     case $kind in
-        alias)
-            _map --keys;
-            for i in ${MAP2ARRAY[@]}; do printf "%s\n" "$i"; done
-        ;;
-        mac)
-            _map --values;
-            for i in ${MAP2ARRAY[@]}; do
-                for j in ${i//|/ }; do
-                    [[ ${j//-/:} == *:*:*:*:*:* ]] && printf "%s\n" "$j"
-                done
-            done
-        ;;
-        ipv4)
-            __ipv4_list
-        ;;
-        hostip)
-            # An IP in /etc/hosts that is not in the [hosts] ini.
-            _map --keys;
-            for i in ${MAP2ARRAY[@]}; do ini="$ini $i"; done;
-            _map --values;
-            for i in ${MAP2ARRAY[@]}; do
-                for j in ${i//|/ }; do ini="$ini $j"; done
-            done;
-            for i in `awk '{print $1}' /etc/hosts`; do
-                __ipv4_test "$i" || continue;
-                case $i in 0.*|127.*|169.254.*|2[2-5][0-9].*) continue;; esac
-                case " $ini " in *" $i "*) continue;; esac
-                printf "%s\n" "$i"
-            done
-        ;;
-        shell)
-            printf "bash\nzsh\n"
-        ;;
-        kind)
-            printf "%s\n" $__COMP_KINDS
-        ;;
-        e:*)
-            for i in ${kind#e:}; do
-                for j in ${i//:/ }; do printf "%s\n" "$j"; done
-            done
-        ;;
+        shell) printf "bash\nzsh\n";;
+        kind)  printf "%s\n" $__COMP_KINDS | sort -u;;
+        e:*)   for i in ${kind#e:}; do
+                   for j in ${i//:/ }; do printf "%s\n" "$j"; done
+               done;;
+        *)     __comp_value_host "$kind";;
     esac
 }
 
 # Print candidates by kind; kinds are split with ',' and keep their order.
+# A kind prints its own candidates in order; this only drops repeats across kinds.
 __comp_value () {
     [ "$1" ] || return 1;
-    source "$(__script_dir)/bash.xlib";
     local kind;
-    # Load the [hosts] ini once for the kinds that need it.
-    case ",$1," in
-        *,alias,*|*,mac,*|*,hostip,*) __load_ini hosts;;
-    esac
     for kind in ${1//,/ }; do
-        case $kind in
-            hostip|ipv4) __comp_value_kind "$kind" | sort -u -V;;
-            *)           __comp_value_kind "$kind" | sort -u;;
-        esac
+        __comp_value_kind "$kind"
     done | awk '!seen[$0]++'
 }
 

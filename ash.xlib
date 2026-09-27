@@ -33,8 +33,10 @@ __variable_map () {
     [ "$1" ] || return 1;
     __vmap_encode() {
         [ "${1//[0-9A-Za-z_]/}" == "" ] && { printf %s "$1"; return 0; }
-        local idx=-1 args=; while [ $((idx+=2)) -le ${#1} ]; do args="$args '${1:$idx-1:1} '${1:$idx:1}"; done; printf x%x ${args%" '"}; # printf "${args//x/\\x}"
-        # printf d%d ${key%" '"}; # printf "`printf '\\\\x'%x ${key//d/ }`"
+        # One argument per character; an unquoted expansion drops the space key.
+        local s=$1 idx=0; set --;
+        while [ $idx -lt ${#s} ]; do set -- "$@" "'${s:$idx:1}"; idx=$((idx+1)); done;
+        printf x%02x "$@"
     }
 
     local key pool value;
@@ -48,8 +50,20 @@ __variable_map () {
         --remove) [ "$key" ] && unset VARIABLE_MAP${pool}_PREFIX_$key;;
         --size) printf %d $(set | grep -c '^VARIABLE_MAP'${pool}_PREFIX_);;
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP'${pool}'_PREFIX_/{printf " " $1}'`;;
-        --keys) printf `set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o "\\\n"} else {printf $2 "\\\n"}}'`;;
-        --2keys) printf `set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o} else {printf $2}; printf "*"; if($3 ~ /^(x[0-9a-f]{2})+$/) {s=$3; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o} else {printf $3}; printf "\\\n"}'`;;
+        # WARNING: a backquote eats a backslash before the command is parsed, so
+        # [$(...)] is required here; decode the [xHH] pairs with 'printf %b'.
+        --keys)
+            local k;
+            for k in $(set | awk -F '_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if ($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s\n", o} else {printf "%s\n", $2}}'); do
+                printf '%b\n' "$k"
+            done
+        ;;
+        --2keys)
+            local k;
+            for k in $(set | awk -F 'VARIABLE_MAP|_PREFIX_|=' '/^VARIABLE_MAP'${pool//x2a/".*"}'_PREFIX_'${key//x2a/".*"}'/{if ($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s", o} else {printf "%s", $2}; printf "*"; if ($3 ~ /^(x[0-9a-f]{2})+$/) {s=$3; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s", o} else {printf "%s", $3}; printf "\n"}'); do
+                printf '%b\n' "$k"
+            done
+        ;;
         *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
 

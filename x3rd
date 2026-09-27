@@ -58,7 +58,7 @@ __SELF_DIR=$(__script_dir)
 #         }
 #
 #     The metavariable names the completion source:
-#         FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND
+#         FILE IMAGE DIRECTORY DEVICE PATH SHELL KIND
 #         {a|b} is an enumeration, e.g., {yes|no}
 #
 #     [###] is reserved for annotation; any other comment must use [#]:
@@ -82,7 +82,7 @@ __SELF_DIR=$(__script_dir)
 ### Print version and exit
 ### Usage: version
 _x3rd_version () {
-    printf "0.22.0.0\n" >&2;
+    printf "0.26.9.26\n" >&2;
     return 0
 }
 

@@ -60,6 +60,8 @@ __SELF_DIR=$(__script_dir)
 #     The metavariable names the completion source:
 #         FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND
 #         {a|b} is an enumeration, e.g., {yes|no}
+#         The kinds of this host are declared by __COMP_KINDS, __comp_kind_host and
+#         __comp_value_host; the generic engine lives in comp.xlib.
 #
 #     [###] is reserved for annotation; any other comment must use [#]:
 #         Use [comp --check] to check the annotations.
@@ -67,7 +69,7 @@ __SELF_DIR=$(__script_dir)
 ### Print version and exit
 ### Usage: version
 _xlib_version () {
-    printf "0.22.0.0\n" >&2;
+    printf "0.26.9.26\n" >&2;
     return 0
 }
 
@@ -1706,6 +1708,65 @@ __load_ini () {
 
    [ `_map $2 --size` == 0 ] && return 1;
    return 0
+}
+
+# The completion kinds of xlib, added to the generic engine in comp.xlib.
+__COMP_KINDS="alias mac ipv4 hostip shell kind";
+
+# Map a metavariable of the annotation; the argument is uppercase.
+__comp_kind_host () {
+    case $1 in
+        HOST)        printf 'alias,ipv4';;
+        ADDRESS|IP)  printf ipv4;;
+        MAC)         printf mac;;
+        ALIAS)       printf alias;;
+        HOSTIP)      printf hostip;;
+    esac
+}
+
+# Print the candidates of a kind of xlib; [hosts] ini needs _map of bash.xlib.
+# The kind prints its own candidates in order, versions sort as versions.
+__comp_value_host () {
+    source "$(__script_dir)/bash.xlib";
+    local kind=$1 i j ini= version=;
+    case $kind in
+        alias|mac|hostip) __load_ini hosts;;
+    esac
+    case $kind in ipv4|hostip) version=-V;; esac
+    {
+        case $kind in
+            alias)
+                _map --keys;
+                for i in ${MAP2ARRAY[@]}; do printf "%s\n" "$i"; done
+            ;;
+            mac)
+                _map --values;
+                for i in ${MAP2ARRAY[@]}; do
+                    for j in ${i//|/ }; do
+                        [[ ${j//-/:} == *:*:*:*:*:* ]] && printf "%s\n" "$j"
+                    done
+                done
+            ;;
+            ipv4)
+                __ipv4_list
+            ;;
+            hostip)
+                # An IP in /etc/hosts that is not in the [hosts] ini.
+                _map --keys;
+                for i in ${MAP2ARRAY[@]}; do ini="$ini $i"; done;
+                _map --values;
+                for i in ${MAP2ARRAY[@]}; do
+                    for j in ${i//|/ }; do ini="$ini $j"; done
+                done;
+                for i in `awk '{print $1}' /etc/hosts`; do
+                    __ipv4_test "$i" || continue;
+                    case $i in 0.*|127.*|169.254.*|2[2-5][0-9].*) continue;; esac
+                    case " $ini " in *" $i "*) continue;; esac
+                    printf "%s\n" "$i"
+                done
+            ;;
+        esac
+    } | sort -u $version
 }
 
 ### Shell completion, auto-generated from annotations

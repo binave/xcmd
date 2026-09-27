@@ -52,9 +52,9 @@ _prefix () {
     if [ "${1/\%/}" == "$1" ]; then
         awk '{print '"$1"' $0};fflush(stdout)'
     else
-        if which gawk >/dev/null; then
+        if which gawk >/dev/null 2>&1; then
             gawk '{print strftime("'"$1"'") $0};fflush(stdout)';
-        elif which perl >/dev/null; then
+        elif which perl >/dev/null 2>&1; then
             perl -ne 'use POSIX qw(strftime); print strftime("'"$1"'", localtime), $_'
         else
             # 'date' is a first-party tool; slower, but it is always available.
@@ -255,10 +255,12 @@ __variable_map () {
         ;;
     esac
 
-    # Encode the key.
+    # Encode the key; keep one word per character, or a space key loses its
+    # character code in the word splitting of 'printf'.
     [[ $2 == *[^0-9A-Za-z_]* ]] && {
-        for ((idx=0; idx<${#2}; idx++)); do key="$key '${2:$idx:1}"; done;
-        printf -v key x%x $key;
+        local -a chars=();
+        for ((idx=0; idx<${#2}; idx++)); do chars[${#chars[@]}]="'${2:$idx:1}"; done;
+        printf -v key x%02x "${chars[@]}";
         :
     } || key="$2";
     value="$3";
@@ -272,7 +274,15 @@ __variable_map () {
         --size) printf %d $(set | grep -c '^VARIABLE_MAP_PREFIX_');;
         # darwin awk does not support --field-separator=.
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`;;
-        --keys) printf `set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf o "\\\n"} else {printf $2 "\\\n"}}'`;;
+        # 'set' lists the stored names; an encoded key is stored as [xHH] pairs.
+        # WARNING: a backquote eats a backslash before the command is parsed, so
+        # [$(...)] is required here; decode the pairs with 'printf %b'.
+        --keys)
+            local k;
+            for k in $(set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if ($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s\n", o} else {printf "%s\n", $2}}'); do
+                printf '%b\n' "$k"
+            done
+        ;;
         --values|--arr|--clearall) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2; return 1;;
         *) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] invalid option: " "$1" >&2; return 1;;
     esac
