@@ -5,7 +5,7 @@
 **eXternal Command - 批处理和 Shell 的命令行封装工具**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.21.4.11-green.svg)](https://github.com/binave/xcmd)
+[![Version](https://img.shields.io/badge/version-0.26.9.26-green.svg)](https://github.com/binave/xcmd)
 
 常用的批处理和 Shell 方法合集。
 

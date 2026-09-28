@@ -213,7 +213,9 @@ _share_do () {
             done
             # Unset 'REPLY'.
             read parameter 2>/dev/null < "$share_do_file.lock" || return 1;
-            [ -p "$share_do_file.in" ] && printf "%s #\n" "${arguments:0:-1}" > "$share_do_file.in";
+            # WARNING: [${arguments:0:-1}] needs bash 4.2; this project also runs
+            # on the bash 3.2 of macOS, where a negative length fails.
+            [ -p "$share_do_file.in" ] && printf "%s #\n" "${arguments% *}" > "$share_do_file.in";
             # Read the whole NUL-terminated reply, so a multi-line reply such as
             # [--keys] is neither truncated nor left in the buffer.
             IFS= read -r -d '' line < "$share_do_file.out";
@@ -269,13 +271,17 @@ __variable_map () {
     esac
 
     # Encode the key; one [xHH] pair per byte, so the result is a safe variable
-    # name and [--keys] can decode it back. 'LC_ALL=C' makes the slicing and
-    # 'printf %02x' work on bytes rather than on multi-byte characters (without
-    # it, a non-ASCII key would encode its code point, not its UTF-8 bytes).
+    # name and [--keys] can decode it back. 'LC_ALL=C' makes the slicing byte
+    # wise, and the byte value is made unsigned because bash 3.2 (macOS) prints
+    # a byte >= 0x80 as a negative number, e.g. 0xE4 as ffffffffffffffe4.
     [[ $2 == *[^0-9A-Za-z_]* ]] && {
         local -a chars=();
-        local LC_ALL=C;
-        for ((idx=0; idx<${#2}; idx++)); do chars[${#chars[@]}]="'${2:$idx:1}"; done;
+        local LC_ALL=C v=;
+        for ((idx=0; idx<${#2}; idx++)); do
+            printf -v v '%d' "'${2:$idx:1}";
+            [ $v -lt 0 ] && v=$((v + 256));
+            chars[${#chars[@]}]=$v;
+        done;
         printf -v key x%02x "${chars[@]}";
         :
     } || key="$2";
@@ -376,11 +382,15 @@ _message_queue () {
                 __variable_map --init;
                 __variable_map --put message_queue_size 0;
                 _thread_valve --init $2;
+                # Tell '--init' that the map and the valve are ready: without the
+                # marker, a '--put' right after '--init' races this setup and its
+                # [message_queue_size] increment is lost.
+                : > "$message_queue_file.ready";
                 # Make a handler.
                 local command_and_arguments;
-                while read command_and_arguments; do
+                while read -r command_and_arguments; do
                     if [ "${command_and_arguments:${#command_and_arguments}-2}" != " #" ]; then
-                        printf "[MQ:ERROR] incomplete commands %s\n" "'${command_and_arguments//%34/\\\"}'" >&2;
+                        printf "[MQ:ERROR] incomplete commands %s\n" "'${command_and_arguments}'" >&2;
                         continue
                     elif [ "$command_and_arguments" == "exit #" ]; then
                         _thread_valve --destroy;
@@ -388,7 +398,10 @@ _message_queue () {
                         break
                     fi
                     __variable_map --incrby message_queue_size -1 >/dev/null;
-                    eval _thread_valve --run ${command_and_arguments//%34/\\\"}; # Run the command.
+                    # Quote the whole line: the [%q] of an argument that holds a
+                    # space is a backslash escape, which an unquoted expansion
+                    # would split and re-merge into the next argument.
+                    eval "_thread_valve --run $command_and_arguments"; # Run the command.
                 done < "$message_queue_file.fifo"
 
                 # Close the buffer.
@@ -398,18 +411,34 @@ _message_queue () {
             } &
             printf "$!" > "$message_queue_file.pid";
 
+            # Wait for the marker (5s at most), so that the caller can use the
+            # queue as soon as '--init' returns.
+            local i=0;
+            while [ ! -f "$message_queue_file.ready" ] && [ $i -lt 100 ]; do
+                sleep 0.05; i=$((i+1));
+            done
+            [ -f "$message_queue_file.ready" ] || {
+                printf "[MQ:ERROR] init failed.\n" >&2;
+                kill $(cat "$message_queue_file.pid") 2>/dev/null;
+                rm -f "$message_queue_file."*;
+                return 1
+            };
+
             printf "[MQ:INFO] open.\n"
         ;;
         --put)
             local parameter arguments count=0;
             shift;
             for parameter in "$@"; do
-                parameter="${parameter//\"/%34}"; # Replace a double quote.
-                [ "${parameter/ /}" == "$parameter" ] || parameter="\"$parameter\"";
+                # '%q' keeps spaces, quotes, backslashes and metacharacters for
+                # the 'eval' of the handler; the old '"' -> '%34' scheme lost them.
+                printf -v parameter '%q' "$parameter";
                 arguments="$arguments$parameter "
             done
             __variable_map --incrby message_queue_size 1 >/dev/null;
-            until printf "%s #\n" "${arguments:0:-1}" | { $TIME_LIMIT_COMMAND_4_MQ tee "$message_queue_file.fifo"; } >/dev/null 2>&1; do
+            # 'eval' keeps the quoting of $TIME_LIMIT_COMMAND_4_MQ: without it the
+            # perl fallback is word split and never runs (macOS has no 'timeout').
+            until printf "%s #\n" "${arguments% *}" | { eval $TIME_LIMIT_COMMAND_4_MQ tee "'$message_queue_file.fifo'"; } >/dev/null 2>&1; do
                 if [ $((++count)) -gt ${MQ_REPUT_MAX:-20} -o ! -p "$message_queue_file.fifo" ]; then
                     printf "[MQ:ERROR] put %s failed.\n" "'$*'" >&2;
                     __variable_map --incrby message_queue_size -1 >/dev/null;
@@ -419,15 +448,21 @@ _message_queue () {
             done
         ;;
         --destroy)
-            printf "exit #\n" | { $TIME_LIMIT_COMMAND_4_MQ tee "$message_queue_file.fifo"; } >/dev/null 2>&1 || {
+            printf "exit #\n" | { eval $TIME_LIMIT_COMMAND_4_MQ tee "'$message_queue_file.fifo'"; } >/dev/null 2>&1 || {
                 printf "[MQ:ERROR] 'destroy' failed.\n" >&2;
                 return 1
             }
+            # Wait (5s at most) for the handler to close, so that a '--size' or a
+            # new '--init' cannot see the queue half closed.
+            local i=0;
+            while [ -p "$message_queue_file.fifo" ] && [ $i -lt 100 ]; do
+                sleep 0.05; i=$((i+1));
+            done
         ;;
         --break)
             local count;
             printf "[MQ:WARN] will break.\n" >&2;
-            count=`{ $TIME_LIMIT_COMMAND_4_MQ cat "$message_queue_file.fifo"; } 2>/dev/null | grep -c '[0-9a-zA-Z]'` && {
+            count=`{ eval $TIME_LIMIT_COMMAND_4_MQ cat "'$message_queue_file.fifo'"; } 2>/dev/null | grep -c '[0-9a-zA-Z]'` && {
                 printf "[MQ:INFO] recall task '$count' success.\n";
                 :
             } || printf "[MQ:WARN] no task recall.\n";

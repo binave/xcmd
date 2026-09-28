@@ -5,7 +5,7 @@
 **eXternal Command - command-line wrapper for batch and shell**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.21.4.11-green.svg)](https://github.com/binave/xcmd)
+[![Version](https://img.shields.io/badge/version-0.26.9.26-green.svg)](https://github.com/binave/xcmd)
 
 A collection of commonly used batch and shell functions.
 

@@ -801,7 +801,8 @@ _m2_download () {
 
     # Support -np.
     while [ "/" == "${_m2:0-1}" ]; do
-        _m2=${_m2:0:-1};
+        # Trim: # linux:${_m2:0:-1} -> darwin:${_m2:0:${#_m2}-1}
+        _m2=${_m2:0:${#_m2}-1};
     done;
 
     _ver=${_m2##*/};
