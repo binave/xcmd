@@ -705,7 +705,7 @@ exit /b 0
     endlocal
     exit /b 0
 
-::: "    -f, --find=[MAC,HOST]...  search for IPv4 by MAC address or host name" ""
+::: "    -f, --find=[MAC,HOST]..." "                          search for IPv4 by MAC address or host name" ""
 :sub\ip\--find
 :sub\ip\-f
     if "%~1"=="" exit /b 32 @REM The host name is empty.
@@ -3364,7 +3364,7 @@ exit /b 0
     if defined _compress_args exit /b 0
     exit /b 1
 
-::: "    -e, --export=SOURCE [TARGET] [INDEX] [LEVEL]   export image INDEX from SOURCE to TARGET" "                                   LEVEL: 0 none, 1 WIMBoot, 2 fast, 3 max, 4 recovery (ESD)" ""
+::: "    -e, --export=SOURCE [TARGET] [INDEX] [LEVEL]" "                                    export image INDEX from SOURCE to TARGET" "                                    LEVEL: 0 none, 1 WIMBoot, 2 fast, 3 max, 4 recovery (ESD)" ""
 :sub\wim\--export
 :sub\wim\-e
     if not exist %1 exit /b 57 @REM wim file not found
@@ -5073,8 +5073,9 @@ exit /b 0
                 set _annotation=
 
             )
-            :: Initialize the function variables used to list all functions or a sorted function name.
-            set _prefix_4_auto_complete\%%~c=!_annotation! ""
+            :: Initialize the variables used to list all functions or a sorted function name; skip the dispatch labels (-h, --help).
+            set _fn_name=%%~c
+            if not "!_fn_name!"=="" if not "!_fn_name:~0,1!"=="-" set _prefix_4_auto_complete\%%~c=!_annotation! ""
 
         )
     )

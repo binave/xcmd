@@ -72,7 +72,7 @@ exit /b 0
     call :this\annotation
     exit /b 0
 
-::: "Print version and exit"
+::: "Print version and exit" "" "Usage: %~n0 version"
 :x3rd\version
     >&3 echo 0.26.9.26
     exit /b 0
@@ -92,7 +92,7 @@ exit /b 0
     call :comp\run --clink
     exit /b %errorlevel%
 
-::: "    -i, --install [DIR]   install the completion script to the clink directory"
+::: "    -i, --install[=DIR]   install the completion script to the clink directory"
 :sub\comp\--install
 :sub\comp\-i
     :: [--install] alone installs to the clink directory.  [--install=DIR] and
@@ -125,7 +125,7 @@ exit /b 0
     call :sub\git\%* 2>nul
     goto :eof
 
-:::  "    -b, --backup   backup git repositories"
+:::  "    -b, --backup             backup git repositories"
 :sub\git\--backup
 :sub\git\-b
     call :sub\path\--contain git.exe || exit /b 2 @REM The git command was not found.
@@ -158,13 +158,13 @@ exit /b 0
     endlocal
     exit /b 0
 
-:::  "    -ua, --update-all   update all repositories"
+:::  "    -ua, --update-all        update all repositories"
 :sub\git\--update-all
 :sub\git\-ua
     for /r /d %%a in (.g?t) do echo [INFO] %%~dpa&& git.exe --git-dir="%%a" --work-tree="%%~dpa" pull
     goto :eof
 
-:::  "    -id, --install-doc   install the 'doc' alias to ~/.gitconfig"
+:::  "    -id, --install-doc       install the 'doc' alias to ~/.gitconfig"
 :sub\git\--install-doc
 :sub\git\-id
     call :sub\path\--contain git.exe || exit /b 2 @REM The git command was not found.
@@ -246,7 +246,7 @@ exit /b 0
     call :sub\m2\%* 2>nul
     goto :eof
 
-::: "    -c, --trim [PATH]   print broken files in the local maven repository"
+::: "    -c, --trim[=PATH]   print broken files in the local maven repository"
 :sub\m2\--trim
 :sub\m2\-c
     setlocal
@@ -385,7 +385,7 @@ exit /b 0
     echo All vm stop
     exit /b 0
 
-::: "" "    ova     [VM_NAME] [EULA_FILE_PATH]" "                package the VM as an ova file"
+::: "" "    ova         [VM_NAME] [EULA_FILE_PATH]" "                package the VM as an ova file"
 :sub\vbox\ova
     if "%~1"=="" exit /b 51 @REM The VM name is empty.
     if not exist "%~2" exit /b 52 @REM The EULA file was not found.
@@ -452,7 +452,7 @@ exit /b 0
     popd
     exit /b 0
 
-::: "" "    -b2, --vob2         [DRIVE:] [OUTPUT_FILE]" "                        convert a DVD drive to a video file" "                   e.g. %~n0 c2 -b2 D: E:\out.mkv"
+::: "" "    -b2, --vob2=[DRIVE:] [OUTPUT_FILE]" "                        convert a DVD drive to a video file" "                   e.g. %~n0 c2 -b2 D: E:\out.mkv"
 :sub\c2\--vob2
 :sub\c2\-b2
     if not exist "%~dp2" exit /b 22 @REM The output path was not found.
@@ -468,10 +468,10 @@ exit /b 0
     endlocal & ffmpeg.exe -hide_banner -i concat:"%_src%" "%~f2"
     goto :eof
 
-::: "" "    -2g, --2gif         [VIDEO_FILE] [TIME_RANGE]" "                        convert a video to a gif" "                   e.g. %~n0 c2 -2g D:\src.mp4 796-797"
+::: "" "    -2g, --2gif=[VIDEO_FILE] [TIME_RANGE]" "                        convert a video to a gif" "                   e.g. %~n0 c2 -2g D:\src.mp4 796-797"
 :sub\c2\--2gif
 :sub\c2\-2g
-::: "" "    -ss, --screenshot   [VIDEO_FILE] [TIME_RANGE]" "                        take screenshots of a video over a time range"
+::: "" "    -ss, --screenshot=[VIDEO_FILE] [TIME_RANGE]" "                        take screenshots of a video over a time range"
 :sub\c2\--screenshot
 :sub\c2\-ss
     if not exist "%~1" exit /b 32 @REM The input video path was not found.
@@ -499,7 +499,7 @@ exit /b 0
     endlocal
     goto :eof
 
-::: "Play all media in a directory" "" "Usage: %~n0 play [OPTION]... [DIRECTORY]..." "" "    -r, --random             play in random order" "    -a, --ast NUMBER         select the desired audio stream" "    -j, --skip NUMBER        skip NUMBER files" "" "   PLAY_VOLUME               environment variable, e.g. 0.5" "" "   PLAY_SCALE                environment variable, e.g. -1:480"
+::: "Play all media in a directory" "" "Usage: %~n0 play [OPTION]... [DIRECTORY]..." "" "    -r, --random             play in random order" "    -a, --ast=NUMBER         select the desired audio stream" "    -j, --skip=NUMBER        skip NUMBER files" "" "   PLAY_VOLUME               environment variable, e.g. 0.5" "" "   PLAY_SCALE                environment variable, e.g. -1:480"
 :x3rd\play
     call :sub\path\--contain ffplay.exe || exit /b 12 @REM ffplay command not found
     if "%~1"=="" exit /b 13 @REM args is empty
@@ -863,7 +863,7 @@ exit /b 0
     setlocal enabledelayedexpansion & set /a _err_code=%errorlevel%
     set _annotation_more=
     set _err_msg=
-    for /f "usebackq skip=65 delims=" %%a in (
+    for /f "usebackq skip=74 delims=" %%a in (
         "%~f0"
     ) do for /f "usebackq tokens=1,2* delims=\	 " %%b in (
         '%%a'
@@ -900,8 +900,9 @@ exit /b 0
                 set _annotation=
 
             )
-            :: Register the annotation for the function list and name completion.
-            set _prefix_4_auto_complete\%%~c=!_annotation! ""
+            :: Register the annotation for the list and name completion; skip the dispatch labels (-h, --help).
+            set _fn_name=%%~c
+            if not "!_fn_name!"=="" if not "!_fn_name:~0,1!"=="-" set _prefix_4_auto_complete\%%~c=!_annotation! ""
 
         )
     )
