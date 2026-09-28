@@ -49,7 +49,9 @@
 
 1. 下载 `xlib` 和/或 `x3rd`
 2. 添加执行权限：`chmod +x xlib`
-3. 将脚本目录添加到 PATH
+3. 将脚本目录添加到 PATH：
+   - bash/zsh：`export PATH="$PATH:/path/to/xcmd"`
+   - fish：`fish_add_path /path/to/xcmd`（**不要**在 fish 里用 bash 的 `A=$A:...` 写法，它会把 PATH 覆盖掉）
 4. 确保脚本使用 `LF` 换行符
 
 ### 快速测试
@@ -157,22 +159,23 @@ xlib hosts
 从脚本注解自动生成所有命令、选项和参数值的补全配置：
 
 ```bash
-# 生成并安装到当前 shell（bash/zsh），输出 source 行
+# 生成并安装到当前 shell（bash/zsh/fish），输出生成的文件路径
 xlib comp -i
 
 # 或输出到标准输出，自行安装
 xlib comp --bash
 xlib comp --zsh
+xlib comp --fish
 
 # 检查注解并输出告警
 xlib comp --check
 ```
 
-`xlib comp -i` 会生成补全文件，并在 `~/.bashrc` 或 `~/.zshrc` 缺少 source 行时自动补上（zsh 下该行必须在 `compinit` 之后），然后重启 shell 生效；脚本删改后重新执行一次 `xlib comp -i` 即可。参数值同样可补齐：`wol <TAB>` 补全 `[hosts]` 别名以及只存在于 `/etc/hosts` 的 IP，`wol -b <TAB>` 补全别名与本机 IPv4，`ip -f <TAB>` 补全 MAC 地址与别名。若补全退化成当前目录，说明 rc 没有加载补全文件。
+`xlib comp -i` 会自动识别当前 shell：bash/zsh 下生成补全文件，并在 `~/.bashrc` 或 `~/.zshrc` 缺少 source 行时自动补上（zsh 下该行必须在 `compinit` 之后）；fish 下写入 `~/.config/fish/completions/xlib.fish`，fish 会自动按需加载，无需改 rc。之后重启 shell 生效；脚本删改后重新执行一次 `xlib comp -i` 即可。参数值同样可补齐：`wol <TAB>` 补全 `[hosts]` 别名以及只存在于 `/etc/hosts` 的 IP，`wol -b <TAB>` 补全别名与本机 IPv4，`ip -f <TAB>` 补全 MAC 地址与别名。若补全退化成当前目录，说明 rc 没有加载补全文件。
 
 帮助与补全共用一份"贴着代码"的注解：命令上方放 `###` 块，每个 `case` 分支上方放缩进的 `###` 行，采用 GNU 风格（`-o, --option=FILE`、`NAME=TYPE`）。元变量决定补全来源；`xlib` 支持 `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND`（`HOSTIP` 指 `/etc/hosts` 里有、但 `[hosts]` ini 里没有的 IP），`{a|b}` 表示枚举。`###` 专用于注解，其它注释请用 `#`，否则 `xlib comp --check` 会告警。通用引擎位于 `comp.xlib`，由 `xlib` 与 `x3rd` 共用；各宿主用 `__COMP_KINDS`、`__comp_kind_host`、`__comp_value_host` 声明自己的类型与候选，因此 `x3rd` 只补全通用类型。`x3rd` 的补全用 `x3rd comp -i` 安装。
 
-只在单一平台存在的命令或选项，用注解行尾的短标记标注——`### Volume info or edit [macOS]`，或 `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`。无参列表与 `-h` 会把标记对齐显示在单独一列，而 `comp -i` / `comp --bash` / `comp --zsh` 会跳过与当前平台不匹配的项。`xlib comp --list 平台` 可查看 `macos`、`linux` 或 `all` 的解析结果。
+只在单一平台存在的命令或选项，用注解行尾的短标记标注——`### Volume info or edit [macOS]`，或 `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`。无参列表与 `-h` 会把标记显示在说明末尾，而 `comp -i` / `comp --bash` / `comp --zsh` / `comp --fish` 会跳过与当前平台不匹配的项。`xlib comp --list 平台` 可查看 `macos`、`linux` 或 `all` 的解析结果。
 
 ### Clink 自动补齐（Windows）
 

@@ -178,17 +178,21 @@ _share_do () {
                 eval "exec $(($SHARE_DO_POOL + 2))<> '$share_do_file.lock'";
                 printf "\n" > "$share_do_file.lock";
                 local command_and_arguments;
-                while read command_and_arguments;
+                # '-r' keeps the backslash quoting produced by 'printf %q'.
+                while read -r command_and_arguments;
                 do
                     if [ "${command_and_arguments:${#command_and_arguments}-2}" != " #" ]; then
-                        printf "[SD:ERROR] incomplete commands %s\n" "'${command_and_arguments//%34/\\\"}'" >&2;
+                        printf "[SD:ERROR] incomplete commands %s\n" "'${command_and_arguments}'" >&2;
                         continue
                     elif [ "$command_and_arguments" == "exit #" ]; then
                         break
                     fi
                     {
-                        eval ${command_and_arguments//%34/\\\"}; # Run the command.
-                        printf "\n"
+                        eval "$command_and_arguments"; # Run the command.
+                        # A reply ends with NUL, which no command output can
+                        # contain; a blank line would be ambiguous because the
+                        # output may or may not end with a newline.
+                        printf '\0'
                     } > "$share_do_file.out"
                 done < "$share_do_file.in";
 
@@ -200,16 +204,20 @@ _share_do () {
         ;;
         --run)
             shift;
-            local parameter arguments;
+            local parameter arguments line;
             for parameter in "$@"; do
-                parameter="${parameter//\"/%34}"; # Replace a double quote.
-                [ "${parameter/ /}" == "$parameter" ] || parameter="\"$parameter\"";
+                # '%q' quotes the argument for the 'eval' in the reader, so
+                # metacharacters (; | & $ ` ...) and newlines survive the trip.
+                printf -v parameter '%q' "$parameter";
                 arguments="$arguments$parameter "
             done
             # Unset 'REPLY'.
             read parameter 2>/dev/null < "$share_do_file.lock" || return 1;
             [ -p "$share_do_file.in" ] && printf "%s #\n" "${arguments:0:-1}" > "$share_do_file.in";
-            read arguments < "$share_do_file.out" && [ "$arguments" ] && printf %s "$arguments";
+            # Read the whole NUL-terminated reply, so a multi-line reply such as
+            # [--keys] is neither truncated nor left in the buffer.
+            IFS= read -r -d '' line < "$share_do_file.out";
+            [ "$line" ] && printf '%s' "$line";
             [ -p "$share_do_file.lock" ] && printf "\n" > "$share_do_file.lock"
         ;;
         --destroy)
@@ -235,6 +243,7 @@ _share_do () {
 #    --get     [key]              print the value by key.
 #    --remove  [key]              remove the value by key; print the old value.
 #    --size                       print the map size.
+#    --keys    [pattern]          print the keys, optionally matching a glob pattern.
 #    --clear                      clear the map.
 #    --destroy                    must be closed at the end.
 __variable_map () {
@@ -245,42 +254,58 @@ __variable_map () {
         --init) _share_do --init; return 0;;
         --destroy) _share_do --destroy; return 0;;
         *)
-            # Has a suffix.
-            if [ "${*%@[0-9]*}" != "$*" ]; then
-                [ "${*%@$VARIABLE_MAP_SHARE_DO_POOL}" == "$*" ] && return 1
-            else
+            # '_share_do --run' appends the pool as a trailing '@POOL' argument.
+            # Drop it, so that $2 is the real key (or the [--keys] pattern);
+            # without this, an option that takes no key sees '@POOL' as its key.
+            if [ "$#" -gt 0 ] && [ "${!#}" == "@$VARIABLE_MAP_SHARE_DO_POOL" ]; then
+                set -- "${@:1:$#-1}"
+            elif [ "${*%@[0-9]*}" == "$*" ]; then
                 _share_do --run __variable_map "$@" "@$VARIABLE_MAP_SHARE_DO_POOL";
                 return 0
+            else
+                return 1
             fi
         ;;
     esac
 
-    # Encode the key; keep one word per character, or a space key loses its
-    # character code in the word splitting of 'printf'.
+    # Encode the key; one [xHH] pair per byte, so the result is a safe variable
+    # name and [--keys] can decode it back. 'LC_ALL=C' makes the slicing and
+    # 'printf %02x' work on bytes rather than on multi-byte characters (without
+    # it, a non-ASCII key would encode its code point, not its UTF-8 bytes).
     [[ $2 == *[^0-9A-Za-z_]* ]] && {
         local -a chars=();
+        local LC_ALL=C;
         for ((idx=0; idx<${#2}; idx++)); do chars[${#chars[@]}]="'${2:$idx:1}"; done;
         printf -v key x%02x "${chars[@]}";
         :
     } || key="$2";
     value="$3";
 
+    # Indirect access; the key is encoded above, so the name is always safe and
+    # the value is never fed to 'eval' (a value with a quote used to break it).
+    local var="VARIABLE_MAP_PREFIX_$key";
     case $1 in
-        --put) eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\"; VARIABLE_MAP_PREFIX_$key='$value'";;
-        --incrby) eval "printf %s \$VARIABLE_MAP_PREFIX_$key; : \$((VARIABLE_MAP_PREFIX_$key += $value))";;
-        --get) eval printf %s \"\$VARIABLE_MAP_PREFIX_$key\";;
-        --remove) eval "printf %s \"\$VARIABLE_MAP_PREFIX_$key\""; unset VARIABLE_MAP_PREFIX_$key;;
+        --put) printf %s "${!var}"; printf -v "$var" '%s' "$value";;
+        --incrby)
+            printf %s "${!var}";
+            case ${value#-} in ''|*[!0-9]*) return 1;; esac
+            eval ": \$(( $var += $value ))"
+        ;;
+        --get) printf %s "${!var}";;
+        --remove) printf %s "${!var}"; unset "$var";;
         # 'grep' outputs "\n".
         --size) printf %d $(set | grep -c '^VARIABLE_MAP_PREFIX_');;
         # darwin awk does not support --field-separator=.
         --clear) unset `set | awk -F '=' '/^VARIABLE_MAP_PREFIX_/{printf " " $1}'`;;
-        # 'set' lists the stored names; an encoded key is stored as [xHH] pairs.
-        # WARNING: a backquote eats a backslash before the command is parsed, so
-        # [$(...)] is required here; decode the pairs with 'printf %b'.
+        # 'set' lists the stored names; an encoded key is stored as [xHH] pairs,
+        # which are decoded with 'printf %b'.  An optional argument is a shell
+        # pattern matched against the decoded key, e.g. [--keys 'k1*'].
         --keys)
             local k;
-            for k in $(set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_'${key//x2a/".*"}'/{if ($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s\n", o} else {printf "%s\n", $2}}'); do
-                printf '%b\n' "$k"
+            for k in $(set | awk -F 'VARIABLE_MAP_PREFIX_|=' '/^VARIABLE_MAP_PREFIX_/{if ($2 ~ /^(x[0-9a-f]{2})+$/) {s=$2; o=""; while (s != "") {o = o "\\" "x" substr(s, 2, 2); s = substr(s, 4)}; printf "%s\n", o} else {printf "%s\n", $2}}'); do
+                k=$(printf '%b' "$k");
+                [ "$2" ] && case $k in $2) :;; *) continue;; esac
+                printf '%s\n' "$k"
             done
         ;;
         --values|--arr|--clearall) printf "%s\033[31m%s\033[0m%s\n" "[MAP:ERROR] not implement option: " "$1" >&2; return 1;;

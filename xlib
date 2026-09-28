@@ -901,24 +901,27 @@ _xlib_drv () {
 _xlib_hash () {
     which openssl >/dev/null 2>&1 || exit 1; # The openssl command was not found.
     local h_code;
-    for h_code in $(
-        {
-            [ -f "$1" ] && {
-                cat "$1" | tee >(openssl dgst -sha1 >&2) >(openssl dgst -md5 >&2) >(openssl dgst -sha256 >&2) | openssl dgst -sha512;
-                :
-            } || tee >(openssl dgst -sha1 >&2) >(openssl dgst -md5 >&2) >(openssl dgst -sha256 >&2) | openssl dgst -sha512;
-        } 2>&1
-    ); do
-        if [ ${#h_code} == 32 ]; then
-            printf "MD5: $h_code\n";
-        elif [ ${#h_code} == 40 ]; then
-            printf "SHA1: $h_code\n";
-        elif [ ${#h_code} == 64 ]; then
-            printf "SHA256: $h_code\n";
-        elif [ ${#h_code} == 128 ]; then
-            printf "SHA512: $h_code\n";
-        fi
-    done
+    {
+        # 'tee' feeds all four digests from a single read of the input.
+        for h_code in $(
+            {
+                [ -f "$1" ] && {
+                    cat "$1" | tee >(openssl dgst -sha1 >&2) >(openssl dgst -md5 >&2) >(openssl dgst -sha256 >&2) | openssl dgst -sha512;
+                    :
+                } || tee >(openssl dgst -sha1 >&2) >(openssl dgst -md5 >&2) >(openssl dgst -sha256 >&2) | openssl dgst -sha512;
+            } 2>&1
+        ); do
+            if [ ${#h_code} == 32 ]; then
+                printf "MD5: $h_code\n";
+            elif [ ${#h_code} == 40 ]; then
+                printf "SHA1: $h_code\n";
+            elif [ ${#h_code} == 64 ]; then
+                printf "SHA256: $h_code\n";
+            elif [ ${#h_code} == 128 ]; then
+                printf "SHA512: $h_code\n";
+            fi
+        done
+    } | sort # Make the report order deterministic.
 }
 
 ### Volume info or edit [macOS]
@@ -1360,15 +1363,23 @@ __ipv4_list () {
 __arp_show () {
     [[ $OSTYPE == darwin* ]] && { arp $1 2>/dev/null; return; };
     # 'arp' is net-tools, which is not preinstalled on Linux; prefer iproute2.
-    which ip >/dev/null 2>&1 && ip neigh show "$1" 2>/dev/null || \
+    if which ip >/dev/null 2>&1; then
+        ip neigh show "$1" 2>/dev/null
+    elif which arp >/dev/null 2>&1; then
         arp -n "$1" 2>/dev/null | tr "[:upper:]" "[:lower:]"
+    fi
+    :
 }
 
 # Clear the ARP (neighbour) cache.
 __arp_flush () {
     [[ $OSTYPE == darwin* ]] && { sudo arp -ad >/dev/null 2>&1; return; };
-    which ip >/dev/null 2>&1 && ip neigh flush all >/dev/null 2>&1 || \
-        arp -n | awk 'NR>1 {system("arp -d "$1)}' >/dev/null 2>&1
+    if which ip >/dev/null 2>&1; then
+        ip neigh flush all >/dev/null 2>&1
+    elif which arp >/dev/null 2>&1; then
+        arp -n 2>/dev/null | awk 'NR>1 {system("arp -d "$1)}' >/dev/null 2>&1
+    fi
+    :
 }
 
 # For _xlib_ip.
@@ -1736,7 +1747,14 @@ __comp_value_host () {
     case $kind in
         alias|mac|hostip) __load_ini hosts;;
     esac
-    case $kind in ipv4|hostip) version=-V;; esac
+    case $kind in
+        ipv4|hostip)
+            # 'sort -V' is GNU/uutils; busybox and some BSD sorts reject it, so
+            # fall back to a plain sort instead of failing the completion.
+            version=-V;
+            sort -V </dev/null >/dev/null 2>&1 || version=;
+        ;;
+    esac
     {
         case $kind in
             alias)
@@ -1787,6 +1805,11 @@ _xlib_comp () {
         --zsh|-z)
             shift;
             __comp_zsh "$@"
+        ;;
+        ###   -f, --fish   print the fish completion script
+        --fish|-f)
+            shift;
+            __comp_fish "$@"
         ;;
         ###   -i, --install[=SHELL]   install completion to HOME, default is the current shell
         --install|-i)
@@ -1913,39 +1936,15 @@ _func_annotation () {
         return 0
 
     else
-        # Show all commands; the first line of each command annotation is the brief,
-        # and its [macOS] / [Linux] tag is aligned in a column of its own.
-        local platform= width=0 brief i;
-        local -a cmd_arr=() brief_arr=() tag_arr=();
+        # Show all commands; the first line of each command annotation is the
+        # brief, with its [macOS] / [Linux] tag kept at the end of the line.
         while IFS=$'\t' read -r kind cmd key text; do
-            case $kind in
-                P) platform=$text;;
-                C)
-                    [ "$cmd" == "$last" ] && continue;
-                    last=$cmd;
-                    if [ "$platform" == "-" ]; then
-                        brief=$text;
-                    else
-                        # The tag is the last word of the brief.
-                        brief=${text% *};
-                        [ "$brief" == "$text" ] && brief=;
-                        [ ${#brief} -gt $width ] && width=${#brief};
-                    fi
-                    cmd_arr[${#cmd_arr[@]}]="$cmd";
-                    brief_arr[${#brief_arr[@]}]="$brief";
-                    tag_arr[${#tag_arr[@]}]="$platform";
-                ;;
-            esac
+            [ "$kind" == "C" ] || continue;
+            [ "$cmd" == "$last" ] && continue;
+            last=$cmd;
+            # Left aligned at 15 characters.
+            printf "%-15s%s\n" "$cmd" "$text";
         done < <(__annot_scan)
-        width=$((width + 2));
-        for ((i=0; i<${#cmd_arr[@]}; i++)); do
-            case ${tag_arr[$i]} in
-                macos) printf "%-15s%-*s[macOS]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
-                linux) printf "%-15s%-*s[Linux]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
-                # Left aligned at 15 characters.
-                *)     printf "%-15s%s\n" "${cmd_arr[$i]}" "${brief_arr[$i]}";;
-            esac
-        done
     fi
 
 }

@@ -51,7 +51,9 @@ A collection of commonly used batch and shell functions.
 
 1. Download `xlib` and/or `x3rd`
 2. Add execute permission: `chmod +x xlib`
-3. Add the script directory to your PATH
+3. Add the script directory to your PATH:
+   - bash/zsh: `export PATH="$PATH:/path/to/xcmd"`
+   - fish: `fish_add_path /path/to/xcmd` (do **not** use the bash `A=$A:...` form in fish, it replaces PATH)
 4. Ensure the script uses `LF` line endings
 
 ### Quick Test
@@ -159,18 +161,19 @@ xlib hosts
 Completion for all commands, options and argument values is auto-generated from the script annotations:
 
 ```bash
-# Generate and install for the current shell (bash/zsh), print the source line
+# Generate and install for the current shell (bash/zsh/fish), print the file
 xlib comp -i
 
 # Or print to stdout for a custom setup
 xlib comp --bash
 xlib comp --zsh
+xlib comp --fish
 
 # Check the annotation, print warnings
 xlib comp --check
 ```
 
-`xlib comp -i` writes the completion file and appends the `source` line to `~/.bashrc` or `~/.zshrc` when it is missing (for zsh the line must come after `compinit`), then restart the shell. Re-run `xlib comp -i` after the script is edited. Argument values are completed too: `wol <TAB>` completes `[hosts]` aliases and the IPs that exist only in `/etc/hosts`, `wol -b <TAB>` completes aliases and local IPv4, and `ip -f <TAB>` completes MAC addresses and aliases. If completion falls back to the current directory, the completion file is not loaded by your rc.
+`xlib comp -i` auto-detects the running shell: for bash/zsh it writes the completion file and appends the `source` line to `~/.bashrc` or `~/.zshrc` when it is missing (for zsh the line must come after `compinit`); for fish it writes `~/.config/fish/completions/xlib.fish`, which fish loads on demand without an rc line. Restart the shell afterwards. Re-run `xlib comp -i` after the script is edited. Argument values are completed too: `wol <TAB>` completes `[hosts]` aliases and the IPs that exist only in `/etc/hosts`, `wol -b <TAB>` completes aliases and local IPv4, and `ip -f <TAB>` completes MAC addresses and aliases. If completion falls back to the current directory, the completion file is not loaded by your rc.
 
 Help and completion share one annotation next to the code: a `###` block above the command, and an indented `###` line above each `case` branch, using GNU style (`-o, --option=FILE`, `NAME=TYPE`). The metavariable names the completion source; `xlib` supports `FILE IMAGE DIRECTORY DEVICE PATH HOST ADDRESS MAC ALIAS HOSTIP SHELL KIND` (`HOSTIP` is an IP in `/etc/hosts` that is not in the `[hosts]` ini), and `{a|b}` is an enumeration. `###` is reserved for annotation — any other comment must use `#`, otherwise `xlib comp --check` will report it. The generic engine lives in `comp.xlib` and is shared by `xlib` and `x3rd`; a host declares its own vocabulary and candidates with `__COMP_KINDS`, `__comp_kind_host` and `__comp_value_host`, so `x3rd` completes only the generic kinds. Use `x3rd comp -i` for the `x3rd` completion.
 
@@ -188,7 +191,7 @@ x3rd comp --check
 
 It completes commands, options and argument values, auto-generated from the same `:::` annotations that already provide `--help`; the GNU-style metavariable names the completion source (`FILE IMAGE PATH DIRECTORY DIR DEVICE ADDRESS IP IPV4 MAC HOST ALIAS HOSTIP SHELL KIND`), and `{a|b}` is an enumeration. The generator is a Lua program, so it lives in `x3rd.cmd` — `xlib.cmd` stays first-party tools only. It is embedded at the end of `x3rd.cmd` as a tagged subdocument, following the same `::tag:` config-embedding scheme that `xlib.cmd` already uses for its `.inf`/`.xml`/`.ini` subdocuments, and it runs on the Lua engine that Clink itself embeds (`clink lua`), so no separate Lua interpreter needs to be installed. Requires Windows and [Clink](https://github.com/chrisant996/clink).
 
-A command or an option that exists on one platform only is marked with a short tag at the end of its annotation line — `### Volume info or edit [macOS]`, or `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`. The no-argument list and `-h` show the tag in a column of its own, while `comp -i` / `comp --bash` / `comp --zsh` skip every entry that does not match the running platform. `xlib comp --list PLATFORM` prints the parsed metadata for `macos`, `linux` or `all`.
+A command or an option that exists on one platform only is marked with a short tag at the end of its annotation line — `### Volume info or edit [macOS]`, or `###   -u, --unique[=DIRECTORY]   search for duplicate files in DIRECTORY [Linux]`. The no-argument list and `-h` show the tag at the end of the brief, while `comp -i` / `comp --bash` / `comp --zsh` / `comp --fish` skip every entry that does not match the running platform. `xlib comp --list PLATFORM` prints the parsed metadata for `macos`, `linux` or `all`.
 
 ### Microsoft Office Deployment (Windows)
 

@@ -931,6 +931,11 @@ _x3rd_comp () {
             shift;
             __comp_zsh "$@"
         ;;
+        ###   -f, --fish   print the fish completion script
+        --fish|-f)
+            shift;
+            __comp_fish "$@"
+        ;;
         ###   -i, --install[=SHELL]   install completion to HOME, default is the current shell
         --install|-i)
             shift;
@@ -1040,39 +1045,15 @@ _func_annotation () {
         return 0
 
     else
-        # Show all commands; the first line of each command annotation is the brief,
-        # and its [macOS] / [Linux] tag is aligned in a column of its own.
-        local platform= width=0 brief i;
-        local -a cmd_arr=() brief_arr=() tag_arr=();
+        # Show all commands; the first line of each command annotation is the
+        # brief, with its [macOS] / [Linux] tag kept at the end of the line.
         while IFS=$'\t' read -r kind cmd key text; do
-            case $kind in
-                P) platform=$text;;
-                C)
-                    [ "$cmd" == "$last" ] && continue;
-                    last=$cmd;
-                    if [ "$platform" == "-" ]; then
-                        brief=$text;
-                    else
-                        # The tag is the last word of the brief.
-                        brief=${text% *};
-                        [ "$brief" == "$text" ] && brief=;
-                        [ ${#brief} -gt $width ] && width=${#brief};
-                    fi
-                    cmd_arr[${#cmd_arr[@]}]="$cmd";
-                    brief_arr[${#brief_arr[@]}]="$brief";
-                    tag_arr[${#tag_arr[@]}]="$platform";
-                ;;
-            esac
+            [ "$kind" == "C" ] || continue;
+            [ "$cmd" == "$last" ] && continue;
+            last=$cmd;
+            # Left aligned at 15 characters.
+            printf "%-15s%s\n" "$cmd" "$text";
         done < <(__annot_scan)
-        width=$((width + 2));
-        for ((i=0; i<${#cmd_arr[@]}; i++)); do
-            case ${tag_arr[$i]} in
-                macos) printf "%-15s%-*s[macOS]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
-                linux) printf "%-15s%-*s[Linux]\n" "${cmd_arr[$i]}" $width "${brief_arr[$i]}";;
-                # Left aligned at 15 characters.
-                *)     printf "%-15s%s\n" "${cmd_arr[$i]}" "${brief_arr[$i]}";;
-            esac
-        done
     fi
 
 }
