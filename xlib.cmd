@@ -209,7 +209,7 @@ exit /b 0
 
 ::: "Sleep for a number of milliseconds" "" "Usage: %~n0 sleep MS"
 :xlib\sleep
-    call :sub\is\--integer %~1 || exit /b 22 @REM The argument is not an integer.
+    call :sub\is\--integer "%~1" || exit /b 22 @REM The argument is not an integer.
     @REM start /min /w mshta.exe vbscript:setTimeout("window.close()",1200)
     start /w MsHta.exe JavaScript:document.write();setTimeout('close()',%~1);
     exit /b 0
@@ -599,7 +599,7 @@ exit /b 0
     call :map --get %~1 _value 1 && set "_line=!_value!"
 
     :: By IPv4 address: the value of the alias that holds the address.
-    call :sub\ip\--test %~1 && if "!_line!"=="%~1" call :sub\wol\--addr-by-ip %~1 _line
+    call :sub\ip\--test "%~1" && if "!_line!"=="%~1" call :sub\wol\--addr-by-ip "%~1" _line
 
     :: The addresses of the resolved line, in the order they are written.
     set "_addr="
@@ -858,7 +858,7 @@ exit /b 0
 ::: "    -if, --isfree=DIR         test whether DIR is empty"
 :sub\dir\--isfree
 :sub\dir\-if
-    call :sub\dir\--isdir %1 || exit /b 32 @REM The path is not a directory.
+    call :sub\dir\--isdir "%~1" || exit /b 32 @REM The path is not a directory.
     for /f usebackq"" %%a in (`
         dir /a /b "%~1"
     `) do exit /b -1
@@ -893,7 +893,7 @@ exit /b 0
 ::: "    --clean=DIR               remove the empty directories under DIR"
 :sub\dir\--clean
     if not exist "%~1" exit /b 43 @REM The target was not found.
-    call :sub\dir\--isdir %1 || exit /b 44 @REM The target is not a directory.
+    call :sub\dir\--isdir "%~1" || exit /b 44 @REM The target is not a directory.
     if exist %windir%\system32\sort.exe (
         call :dir\rdEmptyDirWithSort %1
     ) else call :dir\rdEmptyDir %1
@@ -1821,6 +1821,132 @@ exit /b 0
 :sub\oset\--sysprep
     exit /b 172 @REM Not implemented.
 
+:: Install the English (United States) input method from the Windows 11 FOD media
+:: (mul_languages_and_optional_features_for_windows_11_version_24h2_x64_dvd).
+:: The packages come from the local media only: every dism.exe call is /LimitAccess,
+:: so Windows Update is never contacted. See --add-en-typing.
+::: "    --add-en-typing[=FOD_DIR] [LANGTAG]           install the en-US input method offline from the FOD media"
+:sub\oset\--add-en-typing
+:sub\oset\-aet
+    setlocal
+    set _langtag=%~2
+    if "%_langtag%"=="" set _langtag=en-US
+    set _fod=%~1
+    set _ltag=
+    set _state=
+    call :oset\this_version_multiply_10 _ver_x10
+    if %_ver_x10% lss 100 exit /b 118 @REM The OS version is too low.
+    for /f "usebackq delims=" %%a in (`
+        PowerShell.exe ^
+            -NoLogo ^
+            -NonInteractive ^
+            -ExecutionPolicy Unrestricted ^
+            -Command "('%_langtag%').ToLower()"
+    `) do set _ltag=%%a
+
+    :: Resolve the FOD source: an explicit directory, otherwise the mounted FOD ISO.
+    if not "%_fod%"=="" (
+        call :sub\dir\--isdir "%_fod%" || exit /b 119 @REM The FOD directory does not exist.
+    ) else for /l %%a in (0,1,9) do if not defined _fod (
+        for %%b in (LanguagesAndOptionalFeatures) do if exist "\\?\CDROM%%a\%%b\" set _fod=\\?\CDROM%%a\%%b
+    )
+    if not defined _fod exit /b 120 @REM The FOD directory was not specified and no FOD media was found in the CD-ROM drives.
+
+    set _basic=%_fod%\Microsoft-Windows-LanguageFeatures-Basic-%_ltag%-Package~31bf3856ad364e35~amd64~~.cab
+    set _lpcab=%_fod%\Microsoft-Windows-Client-Language-Pack_x64_%_ltag%.cab
+    if not exist "%_basic%" exit /b 121 @REM The Basic typing package is missing from the FOD directory.
+    if not exist "%_lpcab%" exit /b 122 @REM The language pack is missing from the FOD directory.
+
+    :: Install the Basic typing package, which is the input method itself.
+    call :oset\pkg\state Microsoft-Windows-LanguageFeatures-Basic-%_ltag%-Package _state
+    if /i "%_state%"=="Installed" (
+        echo Microsoft-Windows-LanguageFeatures-Basic-%_ltag%-Package is already installed.
+    ) else (
+        echo installing Microsoft-Windows-LanguageFeatures-Basic-%_ltag%-Package...
+        dism.exe /Online ^
+            /Add-Package ^
+            /PackagePath:"%_basic%" ^
+            /LimitAccess ^
+            /NoRestart
+        if errorlevel 1 exit /b 123 @REM The Basic typing package could not be installed.
+    )
+
+    :: Install the language pack, which registers the language for the user interface.
+    call :oset\pkg\state Microsoft-Windows-Client-LanguagePack-Package~31bf3856ad364e35~amd64~%_langtag%~ _state
+    if /i "%_state%"=="Installed" (
+        echo Microsoft-Windows-Client-LanguagePack-Package %_langtag% is already installed.
+    ) else (
+        echo installing the %_langtag% language pack...
+        dism.exe /Online ^
+            /Add-Package ^
+            /PackagePath:"%_lpcab%" ^
+            /LimitAccess ^
+            /NoRestart
+        if errorlevel 1 exit /b 124 @REM The language pack could not be installed.
+    )
+
+    :: Verify the input method and report the language list state.
+    call :oset\pkg\state Microsoft-Windows-LanguageFeatures-Basic-%_ltag%-Package _state
+    if /i "%_state%" neq "Installed" exit /b 125 @REM The Basic typing package is not installed.
+    call :oset\cap\state Language.Basic~~~%_langtag%~0.0.1.0 _state
+    if /i "%_state%" neq "Installed" exit /b 126 @REM The input method is not installed.
+    call :oset\lang\list %_langtag%
+    if errorlevel 1 exit /b 127 @REM The language is missing from the language list.
+
+    echo the %_langtag% input method is installed.
+    echo if [Win]+[Space] does not switch it, either sign out and back in, or change
+    echo the language order once in the 'Language ^& region' settings.
+    exit /b 0
+
+::: For :sub\oset\--add-en-typing; print the state of package NAME, or set VAR to it.
+:: The cmdlet is used because 'dism.exe /Get-Packages' prints no state on a plain
+:: listing, and every package revision has its own state.
+:oset\pkg\state
+    set _state=
+    for /f "usebackq delims=" %%a in (`
+        PowerShell.exe ^
+            -NoLogo ^
+            -NonInteractive ^
+            -ExecutionPolicy Unrestricted ^
+            -Command "if (Get-WindowsPackage -Online | Where-Object { $_.PackageName -like '%~1*' -and $_.PackageState -eq 'Installed' }) {'Installed'}"
+    `) do set _state=%%a
+    if "%~2"=="" (
+        if /i not "%_state%"=="Installed" exit /b -1
+        exit /b 0
+    )
+    endlocal & set "%~2=%_state%" & exit /b 0
+
+::: For :sub\oset\--add-en-typing; print the state of capability NAME, or set VAR to it
+:oset\cap\state
+    set _state=
+    for /f "usebackq tokens=1,2*" %%a in (`
+        dism.exe /English /Online /Get-CapabilityInfo /CapabilityName:%~1
+    `) do if /i "State"=="%%~a" set _state=%%c
+    if "%~2"=="" (
+        if /i not "%_state%"=="Installed" exit /b -1
+        exit /b 0
+    )
+    set "%~2=%_state%" & exit /b 0
+
+:: Print whether LANGTAG is in the language list of the current user. The cmdlet is
+:: used instead of parsing the registry: the value there is a REG_MULTI_SZ whose
+:: entries are '\0'-separated, which a 'for /f' loop cannot split reliably.
+:oset\lang\list
+    set _found=
+    for /f "usebackq delims=" %%a in (`
+        PowerShell.exe ^
+            -NoLogo ^
+            -NonInteractive ^
+            -ExecutionPolicy Unrestricted ^
+            -Command "if ((Get-WinUserLanguageList).LanguageTag -contains '%~1') {'yes'} else {'no'}"
+    `) do set _found=%%a
+    if /i "%_found%"=="yes" (
+        echo yes
+        exit /b 0
+    )
+    if /i "%_found%"=="no" echo no
+    exit /b -1 @REM The language is missing from the language list.
+
 
 ::: "Directory lock tools" "" "Usage: %~n0 lock [OPTION]..." ""
 :xlib\lock
@@ -2623,7 +2749,7 @@ exit /b 0
 :sub\pkg\--udf
 :sub\pkg\-u
     for %%a in (oscdimg.exe) do if "%%~$path:a"=="" >nul call :init\oscdimg
-    call :sub\dir\--isdir %1 ||  exit /b 32 @REM The target is not a directory.
+    call :sub\dir\--isdir "%~1" ||  exit /b 32 @REM The target is not a directory.
     if /i "%~d1\"=="%~1" exit /b 33 @REM The drive root is not supported.
 
     :: Retry with the trailing backslash removed when the directory name is empty.
@@ -2738,7 +2864,10 @@ exit /b 0
     if "%~2"=="" exit /b 2 @REM output path is empty
     @REM certutil.exe -urlcache -split -f %1 %2
     :: Windows 10 1803 and later ship curl.exe.
-    for %%a in (curl.exe) do if "%%~$path:a" neq "" curl.exe -L --retry 10 -o %2 %1 && exit /b 0
+    for %%a in (curl.exe) do if "%%~$path:a" neq "" (
+        curl.exe -L --retry 10 -o %2 %1
+        if not errorlevel 1 exit /b 0
+    )
     call :this\psv
     if errorlevel 3 PowerShell.exe ^
                         -NoLogo ^
@@ -2746,7 +2875,7 @@ exit /b 0
                         -ExecutionPolicy Unrestricted ^
                         -Command "Invoke-WebRequest -uri %1 -OutFile %2 -UseBasicParsing" && exit /b 0
 
-    call :xlib\vbs get %1 %2 || exit /b 4 @REM download error
+    call :xlib\vbs get "%~1" "%~2" || exit /b 4 @REM download error
     exit /b 0
 
 ::: "Boot tools" "" "Usage: %~n0 boot [OPTION]..." ""
@@ -2986,8 +3115,8 @@ exit /b 0
 :sub\nfs\--mount
 :sub\nfs\-m
     if "%~1"=="" exit /b 12 @REM parameter is empty
-    call :sub\ip\--test %~1 || exit /b 14 @REM parameter not a ip
-    >nul 2>nul ping.exe -n 1 -l 16 -w 100 %~1 || exit /b 15 @REM can not connect remote host
+    call :sub\ip\--test "%~1" || exit /b 14 @REM parameter not a ip
+    >nul 2>nul ping.exe -n 1 -l 16 -w 100 "%~1" || exit /b 15 @REM can not connect remote host
     if not exist %windir%\system32\mount.exe call :nfs\initNfs
     for /f "usebackq skip=1" %%a in (`
         showmount.exe -e %~1
@@ -3118,9 +3247,9 @@ exit /b 0
 :sub\vhd\-e
     if not exist "%~1" exit /b 43 @REM file not found
     if /i ".vhd" neq "%~x1" if /i ".vhdx" neq "%~x1" exit /b 42 @REM file suffix not vhd/vhdx
-    call :sub\is\--integer %~2 || exit /b -1
+    call :sub\is\--integer "%~2" || exit /b -1
     :: Detach the virtual disk before expanding it.
-    call :xlib\vumount %1 > nul
+    >nul call :xlib\vumount "%~1"
     setlocal
     set /a _size=%~2 * 1024 + 8
     (
@@ -3183,7 +3312,7 @@ exit /b 0
     call :sub\oset\--vergeq 6.3 || exit /b 13 @REM dism version is too old
 
     setlocal enabledelayedexpansion
-    call :sub\is\--integer %~1 && call :wim\setCompress %~1 && shift
+    call :sub\is\--integer "%~1" && call :wim\setCompress "%~1" && shift
 
     if not exist "%~1" exit /b 14 @REM target not found
     if "%~d1\"=="%~f1" if "%~2"=="" exit /b 15 @REM need input image name
@@ -3315,7 +3444,7 @@ exit /b 0
 :sub\wim\-m
     if not exist "%~1" exit /b 37 @REM wim file not found
     if /i "%~x1" neq ".wim" exit /b 38 @REM not wim file
-    call :sub\dir\--isdir %2 || exit /b 34 @REM target not directory
+    call :sub\dir\--isdir "%~2" || exit /b 34 @REM target not directory
     setlocal
     set _rw=%~a1
     set _arg=
@@ -3337,7 +3466,7 @@ exit /b 0
 ::: "    -u, --umount=DIR                unmount the image mounted in DIR, discarding changes"
 :sub\wim\--umount
 :sub\wim\-u
-    call :sub\dir\--isdir %1 || exit /b 44 @REM target not directory
+    call :sub\dir\--isdir "%~1" || exit /b 44 @REM target not directory
     dism.exe /Unmount-Wim ^
                 /MountDir:"%~f1" ^
                 /discard %scratch_dir% || exit /b 46 @REM dism error
@@ -3346,7 +3475,7 @@ exit /b 0
 ::: "    -c, --commit=DIR                unmount the image mounted in DIR, keeping changes"
 :sub\wim\--commit
 :sub\wim\-c
-    call :sub\dir\--isdir %1 || exit /b 54 @REM target not directory
+    call :sub\dir\--isdir "%~1" || exit /b 54 @REM target not directory
     dism.exe /Unmount-Wim ^
                 /MountDir:"%~f1" ^
                 /commit %scratch_dir% || exit /b 46 @REM dism error
@@ -3490,7 +3619,7 @@ exit /b 0
 ::: "    -a, --add=OS [DRV]...             add drivers to the offline OS image"
 :sub\drv\--add
 :sub\drv\-a
-    for %%a in (%*) do call :sub\dir\--isdir %1 && (
+    for %%a in (%*) do call :sub\dir\--isdir "%~1" && (
         dism.exe /Image:"%~f1" /Add-Driver /Driver:%%a /Recurse %scratch_dir% || REM
     ) || if /i "%%~xa"==".inf" dism.exe /Image:"%~f1" /Add-Driver /Driver:%%a %scratch_dir% || exit /b 24 @REM dism error
     exit /b 0
@@ -3498,7 +3627,7 @@ exit /b 0
 ::: "    -l, --list[=OS]                   list the drivers of OS, or of the running system"
 :sub\drv\--list
 :sub\drv\-l
-    if "%~1" neq "" call :sub\dir\--isdir %1 || exit /b 32 @REM OS path not found
+    if "%~1" neq "" call :sub\dir\--isdir "%~1" || exit /b 32 @REM OS path not found
     if "%~1"=="" (
         dism.exe /Online /Get-Drivers /all || exit /b 34 @REM dism error
     ) else dism.exe /Image:"%~f1" /Get-Drivers /all || exit /b 34
@@ -3507,7 +3636,7 @@ exit /b 0
 ::: "    -r, --remove=OS [NAME.inf]        remove the third-party driver NAME.inf from OS"
 :sub\drv\--remove
 :sub\drv\-r
-    call :sub\dir\--isdir %1 || exit /b 42 @REM OS path not found
+    call :sub\dir\--isdir "%~1" || exit /b 42 @REM OS path not found
     if /i "%~x2" neq ".inf" exit /b 43 @REM Not drivers name
     dism.exe /Image:"%~f1" /Remove-Driver /Driver:%~2 %scratch_dir% || exit /b 44 @REM dism error
     exit /b 0
@@ -3589,7 +3718,7 @@ exit /b 0
 :sub\drv\--filter
 :sub\drv\-f
     if not exist "%~1" exit /b 65 @REM drivers info file not found
-    call :sub\dir\--isdir %2 || exit /b 66 @REM drivers path error
+    call :sub\dir\--isdir "%~2" || exit /b 66 @REM drivers path error
     :: Create a temporary directory for the trimmed INF files.
     setlocal enabledelayedexpansion
     call :sub\time\--now _out %temp%\inf-
@@ -4642,7 +4771,8 @@ exit /b 0
 :sub\txt\-e
     call :this\psv
     if not errorlevel 3 exit /b 17 @REM PowerShell version is too old
-    call :txt\ps1 -first %*|| exit /b 18 @REM argument error
+    call :txt\ps1 -first %*
+    if not "%errorlevel%"=="0" exit /b 18 @REM argument error
     goto :eof
 
 ::: "    -t, --tail=NUM                   print the last NUM lines of FILE to standard output"
@@ -4650,7 +4780,8 @@ exit /b 0
 :sub\txt\-t
     call :this\psv
     if not errorlevel 3 exit /b 15 @REM PowerShell version is too old
-    call :txt\ps1 -Last %*|| exit /b 16 @REM argument error
+    call :txt\ps1 -Last %*
+    if not "%errorlevel%"=="0" exit /b 16 @REM argument error
     goto :eof
 
 :: Called by :sub\txt\--head and :sub\txt\--tail.
@@ -4678,7 +4809,7 @@ exit /b 0
 :sub\txt\--skip
 :sub\txt\-j
     if not exist "%~1" exit /b 22 @REM source file not found
-    call :sub\is\--integer %~2 || exit /b 23 @REM invalid skip number
+    call :sub\is\--integer "%~2" || exit /b 23 @REM invalid skip number
     if not exist "%~3" exit /b 24 @REM target file not found
     @REM >%3 type nul
     @REM for /f "usebackq skip=%~2 delims=" %%a in (
@@ -4860,7 +4991,8 @@ exit /b 0
     @REM cscript.exe //nologo //e:vbscript.encode %*
     for %%a in (xlib.vbs) do if "%%~$path:a"=="" (
         exit /b 1
-    ) else cscript.exe //nologo "%%~$path:a" %* 2>&3 || exit /b -1
+    ) else cscript.exe //nologo "%%~$path:a" 2>&3 %*
+    if not "%errorlevel%"=="0" exit /b -1
     goto :eof
 
 ::: "Tag each line with the date and time" "" "Usage: %~n0 log [FORMAT]"
@@ -5018,7 +5150,7 @@ exit /b 0
     ) do set _MAP%~2\%%d=%%f
     set b%%l=
 
-    call :map --size %~2 && exit /b 1
+    call :map --size "%~2" && exit /b 1
     exit /b 0
 
   :: :: :: :: ::

@@ -52,24 +52,30 @@ End Function
 
 ''' Download a URL and save the response to a file 'Usage: xlib get URL FILE '  URL    address to download '  FILE   file to write the response body to
 Function xlib_get(url, output)
-    Dim htt, stream
+    Dim htt, stream, code
     Set htt = gXmlHttp()
-    htt.Open "GET", url, 0
+    ' False: wait for the response instead of returning as soon as it is sent.
+    htt.Open "GET", url, False
     htt.Send
+    code = htt.Status
+    ' The status is zero for a URL that is not HTTP, for example a local file.
+    If 400 <= code Then setErr "HTTP " & code & Chr(32) & htt.StatusText
     Set stream = CreateObject("ADODB.Stream")
-    stream.Type = 1
+    stream.Type = 1 ' adTypeBinary
     stream.Open
     stream.Write htt.ResponseBody
-    stream.SaveToFile output, 2
+    stream.SaveToFile output, 2 ' adSaveCreateOverWrite
     stream.Close
 End Function
 
 ''' Download a URL and print the response as text 'Usage: xlib getprint URL
 Function xlib_getprint(url)
-    Dim htt
+    Dim htt, code
     Set htt = gXmlHttp()
-    htt.Open "GET", url, 0
+    htt.Open "GET", url, False
     htt.Send
+    code = htt.Status
+    If 400 <= code Then setErr "HTTP " & code & Chr(32) & htt.StatusText
     printLine htt.ResponseText
 End Function
 
@@ -286,16 +292,21 @@ End Function
 '   Template   '
 ''''''''''''''''
 
-''' Tag each line from standard input with a formatted time prefix 'Usage: COMMAND | xlib log FORMAT '  FORMAT   format string; $F, $T, $Y, $y, $m, $d, $H, $M and $S are replaced
+''' Tag each line from standard input with the time prefix of a Java log 'Usage: COMMAND | xlib log [FORMAT] '  FORMAT   format string; $F, $T, $f, $Y, $y, $m, $d, $H, $M and $S are replaced '  Without FORMAT the prefix is $F $T.$f, for example 2017-01-01 12:00:00.123
 Function xlib_log(format)
-    Dim StdIn, StdOut, t
+    Dim StdIn, StdOut, t, ms
     ' The standard streams are only available under cscript.exe.
     If Not iCscript() Then setErr "Requires cscript.exe"
+    ' FORMAT may be left out; the framework passes an empty string then. Java prints
+    ' its log time prefix as yyyy-MM-dd HH:mm:ss.SSS, which is "$F $T.$f " here.
+    If Len(format) = 0 Then format = "$F $T.$f "
     Set StdIn = WScript.StdIn
     Set StdOut = WScript.StdOut
     Do While Not StdIn.AtEndOfStream
         t = Now
-        StdOut.WriteLine gStamp(format, t) & StdIn.ReadLine
+        ' Timer is the only sub second clock of VBScript; it ticks about every 15 ms.
+        ms = Int(Timer * 1000) Mod 1000
+        StdOut.WriteLine gStamp(format, t, ms) & StdIn.ReadLine
     Loop
 End Function
 
@@ -311,10 +322,23 @@ End Function
 '   Private functions   '
 ''''''''''''''''''''''
 
-' Create a Microsoft.XMLHTTP object for HTTP requests.
+' Create an XMLHTTP object for HTTP requests.
+' The ProgIDs are written out in full on purpose. A name that is assembled from
+' fragments, for example "Microsoft" & Chr(46) & "XML" & Chr(84) & "P", is a
+' malware signature by itself: it hides why the object is created, and antivirus
+' software blocks or deletes the whole script for it. Plain names and plain
+' comments are the safest form a VBScript downloader can take.
 Function gXmlHttp()
-    ' The object name is split to reduce antivirus false positives.
-    Set gXmlHttp = CreateObject("Microsoft" & Chr(46) & "XML" & "HT" & Chr(84) & "P")
+    On Error Resume Next
+    ' MSXML 3.0 is part of Windows XP and later, and it uses the proxy settings of
+    ' Internet Explorer.
+    Set gXmlHttp = CreateObject("MSXML2.XMLHTTP.3.0")
+    If Err.Number <> 0 Then
+        ' The version independent ProgID of the same object.
+        Err.Clear
+        Set gXmlHttp = CreateObject("Microsoft.XMLHTTP")
+    End If
+    On Error GoTo 0
 End Function
 
 ' BKDR hash function.
@@ -443,14 +467,6 @@ Sub base64ToBin(base64Strng, path)
     stream.Close
 End Sub
 
-' Execute the contents of another VBScript file.
-Sub vbs(path)
-    Dim file
-    Set file = CreateObject("Scripting.FileSystemObject").OpenTextFile(path)
-    Execute file.ReadAll
-    file.Close
-End Sub
-
 ' Detect the file type from its header bytes; the trailing tags name the encoding.
 Function gType(source)
     If "fffe2026636c7326" = (Mid(source, 1, 16)) Then ' Unicode text; the header is a hex string.
@@ -476,7 +492,7 @@ Function gPad(value, width)
 End Function
 
 ' Replace the date and time placeholders of the log format.
-Function gStamp(format, t)
+Function gStamp(format, t, ms)
     Dim stamp
     stamp = format
     stamp = Replace(stamp, "$F", gPad(Year(t), 4) & "-" & gPad(Month(t), 2) & "-" & gPad(Day(t), 2))
@@ -488,6 +504,8 @@ Function gStamp(format, t)
     stamp = Replace(stamp, "$H", gPad(Hour(t), 2))
     stamp = Replace(stamp, "$M", gPad(Minute(t), 2))
     stamp = Replace(stamp, "$S", gPad(Second(t), 2))
+    ' $f is the fraction of a second in milliseconds, what a Java log prints as SSS.
+    stamp = Replace(stamp, "$f", gPad(ms, 3))
     gStamp = stamp
 End Function
 
@@ -762,6 +780,39 @@ Function gfuncAnno(method)
     End If
 End Function
 
+' Count the optional operands of one function. They are written between square
+' brackets in the usage part of its annotation, for example "Usage: xlib log
+' [FORMAT]", and they may be left out of the command line.
+Function gOptional(method)
+    Dim text, line, annotation, usage, i, n, target
+    n = 0
+    target = LCase(gScriptName()) & Chr(95) & LCase(method)
+    Set text = CreateObject("Scripting.FileSystemObject").OpenTextFile(WScript.ScriptFullName)
+    Do Until text.AtEndOfStream
+        line = Trim(text.ReadLine)
+        If Chr(39) & Chr(39) & Chr(39) & Chr(32) = Left(line, 4) Then
+            annotation = Trim(Mid(line, 4))
+        ElseIf "function " = LCase(Left(line, 9)) Then
+            If target = LCase(Trim(Mid(line, 10, InStr(line & Chr(40), Chr(40)) - 10))) Then
+                ' The usage part is the annotation part that starts with "Usage:".
+                For Each usage In Split(annotation, Chr(39))
+                    If "usage:" = LCase(Left(Trim(usage), 6)) Then
+                        For i = 1 To Len(usage)
+                            If Chr(91) = Mid(usage, i, 1) Then n = n + 1
+                        Next
+                    End If
+                Next
+                Exit Do
+            End If
+            annotation = ""
+        ElseIf "sub " = LCase(Left(line, 4)) Then
+            annotation = ""
+        End If
+    Loop
+    text.Close
+    gOptional = n
+End Function
+
 ' Return the expression for one argument; "-" means standard input.
 Function rArg(i)
     Dim value
@@ -785,9 +836,10 @@ Function iHelp(i)
 End Function
 
 Sub main()
-    Dim arg, MethoParas, funcName, help, i, errNum, errDesc
+    Dim arg, MethoParas, funcName, help, i, k, parms(), parmCount, optCount, errNum, errDesc
     MethoParas = ""
     funcName = ""
+    parmCount = 0
     i = 0
     ' ' Cache arguments
     ' Set args = WScript.Arguments
@@ -798,8 +850,8 @@ Sub main()
 
     ' Next
 
-    ' Assemble the method name and its parameter list.
-    ' WScript.Arguments is a collection, not an array.
+    ' Collect the method name and its operands. WScript.Arguments is a collection,
+    ' not an array.
     For Each arg In WScript.Arguments
         i = i + 1
         If i = 1 Then
@@ -808,12 +860,10 @@ Sub main()
                 i = 0
                 Exit For ' i stays 0, so the function list is printed.
             End If
-            ' Start the call expression, for example xlib_sleep(.
-            MethoParas = gScriptName() & Chr(95) & arg & Chr(40)
             funcName = arg
-        ElseIf i = 2 Then
-            ' A help flag in the second position prints one function help.
-            If LCase(arg) = "-h" Or LCase(arg) = "--help" Then
+        Else
+            ' A help flag as the first operand prints one function help.
+            If i = 2 And (LCase(arg) = "-h" Or LCase(arg) = "--help") Then
                 help = gfuncAnno(funcName)
                 If Len(help) = 0 Then
                     errLine "Error: No function found"
@@ -822,11 +872,10 @@ Sub main()
                 printLine help
                 WScript.Quit 0
             End If
-            ' Append the first argument, for example xlib_sleep("100".
-            MethoParas = MethoParas & gQuoted(arg)
-        Else
-            ' Append further arguments, for example xlib_sleep("100","200".
-            MethoParas = MethoParas & Chr(44) & gQuoted(arg)
+            ' Cache the operand; the call expression is assembled after the loop.
+            ReDim Preserve parms(parmCount)
+            parms(parmCount) = arg
+            parmCount = parmCount + 1
         End If
     Next
 
@@ -837,8 +886,25 @@ Sub main()
         WScript.Quit 0
     End If
 
-    ' Close the parameter list so that the call can be evaluated.
+    ' A trailing operand that the usage line marks as optional, for example
+    ' [FORMAT], may be left out. VBScript has no optional parameters, so the missing
+    ' operands are passed as empty strings, the way a missing %1 arrives in
+    ' xlib.cmd. Every other function keeps its strict argument count.
+    optCount = gOptional(funcName)
+    For k = parmCount To optCount - 1
+        ReDim Preserve parms(k)
+        parms(k) = ""
+        parmCount = k + 1
+    Next
+
+    ' Assemble the call expression, for example xlib_sleep("100","200").
+    MethoParas = gScriptName() & Chr(95) & funcName & Chr(40)
+    For k = 0 To parmCount - 1
+        If k > 0 Then MethoParas = MethoParas & Chr(44)
+        MethoParas = MethoParas & gQuoted(parms(k))
+    Next
     MethoParas = MethoParas & Chr(41)
+
     On Error Resume Next
     ' Invoke the function with the assembled arguments.
     Eval MethoParas
