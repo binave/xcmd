@@ -323,7 +323,7 @@ _xlib_wol () {
     # Load the [hosts] ini config into map0.
     __load_ini hosts;
 
-    local i j mac_addr broadcast route_ip mac_arr=();
+    local i j mac_addr broadcast sub seen mac_arr=();
     case $1 in
         ###   -b, --broadcast=ADDRESS|ALIAS   broadcast ADDRESS for all targets
         --broadcast|-b)
@@ -337,12 +337,19 @@ _xlib_wol () {
         ;;
         ###   TARGET=ALIAS|HOSTIP   MAC address, hosts alias or IPv4 address
         *)
-            # Default broadcast address: the same subnet as the default gateway.
-            [[ $OSTYPE == darwin* ]] && \
-                route_ip=`route -n get default 2>/dev/null | awk '/gateway/{print $2}'` || \
-                route_ip=`ip route 2>/dev/null | awk '/^default[[:space:]]/{if (NR == 1) print $3}'`;
-            [ "$route_ip" ] || exit 1; # Cannot resolve the broadcast IPv4 address.
-            broadcast="${route_ip%.*}.255"
+            # Default broadcast addresses: the subnet of every default route of a
+            # physical interface. A machine may hold more than one, and a virtual
+            # adapter (a proxy TUN, a VPN) holds a route whose subnet cannot reach
+            # the LAN, so only the physical routes count; the order is not
+            # significant.
+            broadcast=; seen=;
+            for i in `__route_gateway`; do
+                sub="${i%.*}";
+                case " $seen " in *" $sub "*) continue;; esac
+                seen="$seen $sub";
+                broadcast="$broadcast$sub.255 ";
+            done
+            [ "$broadcast" ] || exit 1; # Cannot resolve the broadcast IPv4 address.
         ;;
     esac
 
@@ -359,9 +366,11 @@ _xlib_wol () {
         [ "$mac_addr" ] || exit 1; # Cannot resolve the MAC address.
     done
 
-    # Wake each MAC address.
+    # Wake each MAC address on every broadcast address.
     for i in ${mac_arr[@]}; do
-        __wol "$i" "$broadcast";
+        for j in $broadcast; do
+            __wol "$i" "$j";
+        done
     done
 
 }
@@ -412,7 +421,10 @@ __wol_addr () {
 }
 
 __wol () {
-    if which perl >/dev/null && [ "${SHELL##*/}" == "bash" -o "${SHELL##*/}" == "zsh" ]; then
+    # The magic packet is built with the brace expansion of bash, and this script
+    # always runs on bash whatever [SHELL] says, so any perl found is usable and
+    # is the cheapest sender; python3 and python2 are the fallbacks.
+    if which perl >/dev/null 2>&1; then
         printf $(
             {
                 printf 'f%.0s' {1..12};
@@ -421,7 +433,12 @@ __wol () {
         ) | perl -ne 'use Socket; socket(S, AF_INET, SOCK_DGRAM, getprotobyname("udp")); setsockopt(S, SOL_SOCKET, SO_BROADCAST, 1); send(S, $_, 0, pack_sockaddr_in(9, inet_aton("'"$2"'"))); close S' || \
             exit 1; # The perl command failed.
 
-    elif which python >/dev/null; then
+    elif which python3 >/dev/null 2>&1; then
+        # 'decode("hex")' of python2 became 'bytes.fromhex' in python3.
+        python3 -c 'import socket; S=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); S.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1); S.sendto(bytes.fromhex("".join(["F" * 12, "'"$1"'".replace(":", "").replace("-", "") * 16])), ("'"$2"'", 9))' || \
+            exit 1; # The python3 command failed.
+
+    elif which python >/dev/null 2>&1; then
         python -c 'import socket; S=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); S.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1); S.sendto("".join(["F" * 12, "'"$1"'".replace(":", "").replace("-", "") * 16]).decode("hex"), ("'"$2"'", 9))' || \
             exit 1; # The python command failed.
 
@@ -1340,23 +1357,85 @@ __ipv4_test () {
     return 0
 }
 
-# Print local IPv4 addresses by route.
+# Print the interfaces that the system itself reports as physical hardware.
+# A virtual adapter - a proxy TUN, a VPN, a VM or a container bridge - holds a
+# default route of its own, but its subnet cannot reach the LAN, so every route
+# and address below is limited to this list.
+__if_physical () {
+    local ifs= dev;
+    if [[ $OSTYPE == darwin* ]]; then
+        # The hardware port list is the classification of macOS itself; it holds
+        # no tunnel of any kind.
+        ifs=`networksetup -listallhardwareports 2>/dev/null | awk '/^Device: /{print $2}'`;
+    else
+        # The kernel exposes a bus device for a physical NIC; a tunnel, a bridge
+        # or a container/virtual interface has no '/sys/class/net/<name>/device'.
+        for dev in /sys/class/net/*; do
+            [ -e "$dev/device" ] && ifs="$ifs ${dev##*/}";
+        done
+    fi
+    # No classification available: drop the well known virtual names instead.
+    [ "$ifs" ] || ifs=`ifconfig -a 2>/dev/null | awk -F: '/^[a-z][a-z0-9]*:/{print $1}' | \
+        grep -vE '^(lo|gif|stf|tun|tap|utun|ppp|ipsec|awdl|llw|bridge|vmenet|vmnet|docker|veth|virbr|wg|dummy|sit|ip6tnl|nlmon)[0-9a-z]*$'`;
+    printf "%s\n" $ifs
+}
+
+# Print the [DEVICE GATEWAY] of every IPv4 default route.
+__route_default () {
+    if [[ $OSTYPE == darwin* ]]; then
+        # Destination Gateway Flags Netif Expire
+        netstat -rn -f inet 2>/dev/null | \
+            awk '$1 == "default" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $4, $2}'
+    elif which ip >/dev/null 2>&1; then
+        ip route show default 2>/dev/null | \
+            awk '{d=""; g=""; for (i=1; i<=NF; i++) {if ($i == "via") g=$(i+1); if ($i == "dev") d=$(i+1)};
+                if (d != "" && g ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print d, g}'
+    else
+        # 'route -n' of net-tools or busybox: Destination Gateway Genmask Flags Metric Ref Use Iface
+        route -n 2>/dev/null | \
+            awk '$1 == "0.0.0.0" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $8, $2}'
+    fi
+}
+
+# Print the gateway of every default route of a physical interface; the order is
+# not significant. A route list that the physical filter empties falls back to
+# every default gateway, so a missing classification still finds the LAN.
+__route_gateway () {
+    local dev gw physical= settled= any=;
+    physical=" $(__if_physical | tr '\n' ' ')";
+    while read dev gw; do
+        [ "$gw" ] || continue;
+        case " $any " in *" $gw "*) continue;; esac
+        any="$any $gw";
+        case $physical in
+            *" $dev "*) settled="$settled $gw";;
+        esac
+    done < <(__route_default);
+    printf "%s\n" ${settled:-$any}
+}
+
+# Print the local IPv4 addresses of the physical interfaces.
 __ipv4_list () {
-    # netstat -rn | grep "default"
-    local route_ip;
-    [[ $OSTYPE == darwin* ]] && {
-        route_ip=`route -n get default | awk '/gateway/{print $2}'`;
-        ifconfig | awk '/inet '${route_ip%.*}'\.[0-9]+/{print $2}';
-        :
-    } || {
+    local physical;
+    physical=" $(__if_physical | tr '\n' ' ')";
+    if [[ $OSTYPE == darwin* ]]; then
+        ifconfig 2>/dev/null | awk -v p="$physical" '
+            /^[a-z][a-z0-9]*:/ {dev = $1; sub(/:$/, "", dev); keep = (index(p, " " dev " ") > 0)}
+            keep && $1 == "inet" {print $2}
+        '
+    elif which ip >/dev/null 2>&1; then
         # Linux: 'ip' is iproute2, preinstalled on mainstream distributions;
         # 'ifconfig' is the net-tools fallback. POSIX awk only: mawk has no 'gensub'.
-        route_ip=`ip route 2>/dev/null | awk '/^default[[:space:]]/{if (NR == 1) print $3}'`;
-        [ "$route_ip" ] && ip addr 2>/dev/null | \
-            awk -v p="${route_ip%.*}." '$1 == "inet" && index($2, p) == 1 {sub(/\/.*/, "", $2); print $2}' || \
-        ifconfig 2>/dev/null | awk '$1 == "inet" {sub(/.*:/, "", $2); if ($2 !~ /^(127\.|169\.254\.)/) print $2}';
-        :
-    }
+        ip -o -4 addr show 2>/dev/null | awk -v p="$physical" '
+            {dev = $2; sub(/@.*/, "", dev)}
+            index(p, " " dev " ") > 0 && $4 !~ /^(127\.|169\.254\.)/ {sub(/\/.*/, "", $4); print $4}
+        '
+    else
+        ifconfig -a 2>/dev/null | awk -v p="$physical" '
+            /^[a-z][a-z0-9]*:/ {dev = $1; sub(/:$/, "", dev); keep = (index(p, " " dev " ") > 0)}
+            keep && $1 == "inet" {sub(/.*:/, "", $2); if ($2 !~ /^(127\.|169\.254\.)/) print $2}
+        '
+    fi
 }
 
 # Print the ARP (neighbour) entry of an IPv4 address.
@@ -1391,14 +1470,13 @@ __ip_find () {
 
     local i j max_len=0 r key mac range route_ip;
 
-    # Get [setting].
+    # Get [setting]. The default gateways come from the physical interfaces only,
+    # like [wol] and [ip --list]; a virtual adapter holds a default route of its
+    # own whose subnet cannot reach the LAN.
     __load_ini sip_setting;
     route_ip=`_map --get route`;
     # arr=(${var//,/ }) is only supported by bash.
-    route_ip=(${route_ip//,/ } `[[ $OSTYPE == darwin* ]] && {
-        netstat -nr | awk '/^default[[:space:]]/ && ! /tun|tap/ && /([0-9]+\.){3,}/{print $2}';
-        :
-    } || ip route | awk '/^default/{print $3}'`);
+    route_ip=(${route_ip//,/ } `__route_gateway`);
     # Trim the host part of the address.
     for i in ${!route_ip[@]}; do
         _set --add "${route_ip[$i]%.*}" >/dev/null || unset route_ip[$i];
