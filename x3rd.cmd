@@ -1010,31 +1010,14 @@ exit /b 0
 ::             Embedded Documents            ::
    :: :: :: :: :: :: :: :: :: :: :: :: :: ::
 
-:: The blocks are markdown, and they are never reached when this file runs as a
-:: batch script, because the batch part exits first.  [:txt\--fence] copies a
-:: block with for /f, so nothing is written to disk.
+:: The clink completion generator for xlib.cmd and x3rd.cmd.  The block is
+:: markdown, and the code is never reached when this file runs as a batch
+:: script because the batch part exits first.  [:comp\run] copies it with
+:: for /f and pipes it into the Lua engine that clink embeds, so nothing is
+:: written to disk and no Lua interpreter has to be installed.
 ::
-:: The 'doc' alias that [git -id] installs to ~/.gitconfig.  The lines are
-:: joined with the 7 spaces of the x3rd continuations, so the value stays on
-:: one line, which is what x3rd's awk reads back.
-``` sh
-    doc = "!f() {
-      root=\"$(git rev-parse --show-toplevel)\" || exit 1; repo=\"$(git rev-parse --show-superproject-working-tree 2>/dev/null)\";
-      [ -n \"$repo\" ] && repo=\"$repo.${root##*/}\"; repo=\"${repo:-$root}.docs.git\"; spec=\"$root/.docpathspec\"; case $1 in
-      status|add) cmd=$1; shift; [ \"$1\" = -- ] && { shift; exec git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" \"$@\"; };
-      [ \"$cmd\" = status ] && opt='-uall --ignored=matching' || opt='-f';
-      [ -f \"$spec\" ] || { git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt -- ':(glob)**/*.md'; return; };
-      set -- --; while IFS= read -r line; do case \"$line\" in ''|'#'*) ;; *) set -- \"$@\" \"$line\";; esac; done < \"$spec\";
-      [ \"$cmd\" = add ] && git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt -- ':(top).docpathspec';
-      git --git-dir=\"$repo\" --work-tree=\"$root\" \"$cmd\" $opt \"$@\";;
-      clone) tmp=\"$(mktemp -d 2>/dev/null).$$.git\"; git clone --no-checkout --separate-git-dir=\"$repo\" \"$2\" \"$tmp\" || :; rm -fr \"$tmp\";;
-      *) git --git-dir=\"$repo\" --work-tree=\"$root\" \"$@\";; esac;     }; f"
-```
-
-::
-:: The clink completion generator for xlib.cmd and x3rd.cmd.  [:comp\run] copies
-:: it with for /f and pipes it into the Lua engine that clink embeds, so no Lua
-:: interpreter has to be installed.
+:: The block must not contain an exclamation mark, because for /f copies it
+:: with delayed expansion enabled.
 ``` lua
 -- Framework:
 --
@@ -1131,6 +1114,29 @@ local function lua_string(s)
     return string.format("%q", s)
 end
 
+-- Undo the caret escaping of the batch source.  The help of a script is printed
+-- by reading the annotation and echoing it, so cmd removes one level of caret
+-- escaping on each of the two passes, and a caret in the source escapes the
+-- next character twice.  An annotation writes an exclamation mark as three
+-- carets and the mark itself, which this turns back into the mark alone.
+local function unescape(text)
+    for _ = 1, 2 do
+        local out, i = {}, 1
+        while i <= #text do
+            local c = text:sub(i, i)
+            if c == "^" and i < #text then
+                out[#out + 1] = text:sub(i + 1, i + 1)
+                i = i + 2
+            else
+                out[#out + 1] = c
+                i = i + 1
+            end
+        end
+        text = table.concat(out)
+    end
+    return text
+end
+
 -- Split a quoted annotation payload into its quoted parts.
 local function split_quoted(text)
     local parts, i = {}, 1
@@ -1139,7 +1145,7 @@ local function split_quoted(text)
         if not b then break end
         local e = text:find('"', b + 1, true)
         if not e then break end
-        parts[#parts + 1] = text:sub(b + 1, e - 1)
+        parts[#parts + 1] = unescape(text:sub(b + 1, e - 1))
         i = e + 1
     end
     return parts
@@ -1665,6 +1671,48 @@ local function hosts_ini()
     return out
 end
 
+-- The local IPv4 addresses, taken from the interfaces that Windows does not
+-- call virtual, so a proxy TUN or a VPN interface does not offer its address.
+-- The answer is cached: the query behind it is not free, and a completion may
+-- ask for it many times in one session.
+local ipv4_list = nil
+local function local_ipv4()
+    if ipv4_list then return ipv4_list end
+    local out = {}
+    local pipe = io.popen('powershell.exe -NoLogo -NonInteractive ' ..
+        '-ExecutionPolicy Unrestricted -Command "$v = @{}; ' ..
+        'Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapter ' ..
+        '| ForEach-Object { $v[[int]$_.InterfaceIndex] = $_.Virtual }; ' ..
+        'Get-CimInstance Win32_NetworkAdapterConfiguration ' ..
+        '| Where-Object { $_.IPAddress -and -not $v[[int]$_.InterfaceIndex] } ' ..
+        '| ForEach-Object { $_.IPAddress }" 2>nul')
+    if pipe then
+        for line in pipe:lines() do
+            local ip = line:match("^%s*(%d+%.%d+%.%d+%.%d+)%s*$")
+            if ip then out[#out + 1] = ip end
+        end
+        pipe:close()
+    end
+    if #out == 0 then
+        -- No PowerShell and no CIM: every address ipconfig reports is kept.
+        local fallback = io.popen('ipconfig.exe 2>nul')
+        if fallback then
+            for line in fallback:lines() do
+                local ip = line:match("IPv4[^:]*:%s*([%d%.]+)")
+                if ip then out[#out + 1] = ip end
+            end
+            fallback:close()
+        end
+    end
+    table.sort(out)
+    local uniq, seen = {}, {}
+    for _, v in ipairs(out) do
+        if not seen[v] then seen[v] = true; uniq[#uniq + 1] = v end
+    end
+    ipv4_list = uniq
+    return ipv4_list
+end
+
 -- Local candidates, so a reload does not need the data file again.
 local candidates = {
     letter = function()
@@ -1679,18 +1727,7 @@ local candidates = {
         return out
     end,
 
-    ipv4 = function()
-        local out = {}
-        local pipe = io.popen('ipconfig.exe 2>nul')
-        if pipe then
-            for line in pipe:lines() do
-                local ip = line:match("IPv4[^:]*:%s*([%d%.]+)")
-                if ip then out[#out + 1] = ip end
-            end
-            pipe:close()
-        end
-        return out
-    end,
+    ipv4 = function() return local_ipv4() end,
 
     mac = function()
         local out = {}
@@ -1698,7 +1735,17 @@ local candidates = {
         if pipe then
             for line in pipe:lines() do
                 local mac = line:match("^%s*[%d%.]+%s+([%x][%x%-]+)%s")
-                if mac then out[#out + 1] = (mac:lower():gsub("%-", ":")) end
+                if mac then
+                    mac = mac:lower():gsub("%-", ":")
+                    -- The ARP table holds group addresses - the broadcast
+                    -- [ff:ff:ff:ff:ff:ff], the IPv4 multicast [01:00:5e:..] and
+                    -- the IPv6 multicast [33:33:..] - but a host is never one,
+                    -- so a first octet with the low bit set is dropped.
+                    local first = tonumber(mac:sub(1, 2), 16)
+                    if first and first % 2 == 0 and mac ~= "00:00:00:00:00:00" then
+                        out[#out + 1] = mac
+                    end
+                end
             end
             pipe:close()
         end

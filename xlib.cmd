@@ -521,19 +521,20 @@ exit /b 0
     setlocal enabledelayedexpansion
     :: The [hosts] ini resolves a hosts alias or an IPv4 address to a MAC address.
     call :this\load_ini hosts 1
-    set "_broadcast="
+    set "_bcasts="
     set "_targets=%*"
 
     if /i "%~1"=="-b" goto wol\option
     if /i "%~1"=="--broadcast" goto wol\option
 
-    :: Without the option the broadcast address belongs to the subnet of the
-    :: default gateway, as in the bash version of this command.
+    :: Without the option the broadcast addresses are those of the subnets of the
+    :: default gateways, as in the bash version of this command.  A machine may
+    :: hold more than one physical default route, so every subnet is covered.
     call :this\get_route_ip _route
     for %%a in (
         %_route%
-    ) do if not defined _broadcast set "_broadcast=%%~na.255"
-    if not defined _broadcast exit /b 19 @REM Cannot resolve the broadcast IPv4 address.
+    ) do set "_bcasts=!_bcasts! %%~na.255"
+    if not defined _bcasts exit /b 19 @REM Cannot resolve the broadcast IPv4 address.
     goto wol\wake
 
     :wol\option
@@ -558,16 +559,16 @@ exit /b 0
         )
         if not defined _mac exit /b 30 @REM Cannot resolve the MAC address.
     )
-    for %%a in (
-        %_macs%
-    ) do call :wol %%a %_broadcast%
+    if not defined _macs exit /b 30 @REM Cannot resolve the MAC address.
+    call :wol "!_macs!" "!_bcasts!"
+    if errorlevel 1 exit /b %errorlevel%
     endlocal
     exit /b 0
 
 ::: "    -b, --broadcast=ADDRESS,ALIAS   broadcast ADDRESS for all targets"
 :sub\wol\--broadcast
 :sub\wol\-b
-    :: It writes _broadcast and _targets in the caller's scope on purpose, so no
+    :: It writes _bcasts and _targets in the caller's scope on purpose, so no
     :: setlocal is used here.  The option may be written [-b ADDRESS] or
     :: [--broadcast=ADDRESS], and the rest of the line holds the targets.
     set "_opt=%~1"
@@ -582,10 +583,11 @@ exit /b 0
     if "!_targets: =!"=="" exit /b 30 @REM Cannot resolve the MAC address.
     set "_addrs="
     call :sub\wol\--addr !_opt! _addrs
+    set "_bcasts="
     for %%a in (
         !_addrs!
-    ) do if not defined _broadcast call :sub\ip\--test %%a && set "_broadcast=%%~a"
-    if not defined _broadcast exit /b 19 @REM Cannot resolve the broadcast IPv4 address.
+    ) do if not defined _bcasts call :sub\ip\--test %%a && set "_bcasts=%%~a"
+    if not defined _bcasts exit /b 19 @REM Cannot resolve the broadcast IPv4 address.
     exit /b 0
 
 :: Set %~2 to the MAC and IPv4 addresses that %~1 names in the [hosts] ini, from
@@ -642,16 +644,28 @@ exit /b 0
     exit /b 0
 
 :wol
+    :: %~1 is the MAC address list and %~2 the broadcast address list, so one
+    :: PowerShell process sends every packet: starting PowerShell is the
+    :: dominant cost of the command, and the number of targets varies.
     PowerShell.exe ^
         -NoLogo ^
         -NonInteractive ^
         -ExecutionPolicy Unrestricted ^
         -Command "& {" ^
-        "   $UC = New-Object System.Net.Sockets.UdpClient(\"%~2\", 9);" ^
-        "   $UC.EnableBroadcast = $true;" ^
-        "   $MP = [Byte[]] (, 0xFF * 6) + ((\"%~1\" -split \"[:-]\" | ForEach-Object { [Byte] \"0x$_\"})  * 16);" ^
-        "   $UC.Send($MP, $MP.Length) | Out-Null; $UC.Close();" ^
+        "   $bc = '%~2' -split ' ';" ^
+        "   $head = [Byte[]] (, 0xFF * 6);" ^
+        "   foreach ($mac in ('%~1' -split ' ')) {" ^
+        "       if ($mac -eq '') { continue };" ^
+        "       $mp = [Byte[]] ($head + (($mac -split '[:-]' | ForEach-Object { [Convert]::ToByte($_, 16) }) * 16));" ^
+        "       foreach ($b in $bc) {" ^
+        "           if ($b -eq '') { continue };" ^
+        "           $uc = New-Object System.Net.Sockets.UdpClient($b, 9);" ^
+        "           $uc.EnableBroadcast = $true;" ^
+        "           $uc.Send($mp, $mp.Length) | Out-Null; $uc.Close();" ^
+        "       }" ^
+        "   }" ^
         "}"
+    if errorlevel 1 exit /b 31 @REM The magic packet was not sent.
     goto :eof
 
 ::: "Show or find IPv4" "" "Usage: %~n0 ip [OPTION]..." ""
@@ -686,9 +700,9 @@ exit /b 0
     :: Get the IPv4 address of the router.
     call :this\get_route_ip _route
     :: "
+    call :this\cim || goto legacy\iplist
     for %%a in (
         %_route%
-    call :this\cim || goto legacy\iplist
     ) do for /f "usebackq" %%b in (`
         PowerShell.exe ^
             -NoLogo ^
@@ -698,7 +712,7 @@ exit /b 0
     `) do if "%%~nb"=="%%~na" echo %%b
     goto skip\legacy_iplist
     :legacy\iplist
-    ) do for /f usebackq^ skip^=1^ tokens^=2^ delims^=^" %%b in (`
+    for /f usebackq^ skip^=1^ tokens^=2^ delims^=^" %%b in (`
         wmic.exe NicConfig get IPAddress
     `) do if "%%~nb"=="%%~na" echo %%b
     :skip\legacy_iplist
@@ -797,12 +811,19 @@ exit /b 0
     set _gateway=
     :: "
     call :this\cim || goto legacy\route_ip
+    :: A virtual adapter - a proxy TUN (wintun), a VPN (TAP, a WAN Miniport),
+    :: a Hyper-V or Wi-Fi Direct adapter - holds a default route of its own,
+    :: but its subnet cannot reach the LAN, so only the default routes of the
+    :: interfaces that NDIS does not call virtual are used.  The [Virtual]
+    :: property of [MSFT_NetAdapter] is the classification of Windows itself,
+    :: so it covers every form of tunnel; a route list that the filter empties
+    :: falls back to the plain gateway list.
     for /f "usebackq" %%a in (`
         PowerShell.exe ^
             -NoLogo ^
             -NonInteractive ^
             -ExecutionPolicy Unrestricted ^
-            -Command "Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.DefaultIPGateway } | ForEach-Object { $_.DefaultIPGateway }"
+            -Command "$v = @{}; Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapter | ForEach-Object { $v[[int]$_.InterfaceIndex] = $_.Virtual }; $r = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetRoute | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' -and -not $v[[int]$_.InterfaceIndex] }; if ($r) { $r | ForEach-Object { $_.NextHop } } else { Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.DefaultIPGateway } | ForEach-Object { $_.DefaultIPGateway } }"
     `) do set _gateway=!_gateway! %%a
     goto skip\legacy_route_ip
     :legacy\route_ip
@@ -3870,13 +3891,34 @@ exit /b 0
                     fil5a9177f816435063f779ebbbd2c1a1d2
     exit /b 0
 
-::: "    --ranc                            [WARNING^^^!] restart all network adapters"
+::: "    --ranc                            [WARNING^^^!] restart the network adapters that are not virtual"
 :sub\drv\--ranc
+    setlocal enabledelayedexpansion
+    :: A proxy TUN and a VPN adapter are virtual, and bouncing one would drop the
+    :: tunnel until its client reconnects, so only a real adapter is restarted.
+    :: [Get-NetAdapter] reports the same classification as a friendly name.
+    set "_virtual="
+    call :this\cim || goto ranc\real
+    for /f "usebackq delims=" %%a in (`
+        PowerShell.exe ^
+            -NoLogo ^
+            -NonInteractive ^
+            -ExecutionPolicy Unrestricted ^
+            -Command "Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetAdapter | Where-Object { $_.Virtual } | ForEach-Object { $_.Name }"
+    `) do set "_virtual=!_virtual! "%%a""
+    :ranc\real
     for /f "usebackq skip=2 tokens=3*" %%a in (`
         netsh.exe interface show interface
-    `) do for %%c in (
-        disable enable
-    ) do netsh.exe interface set interface "%%b" %%c
+    `) do (
+        set "_skip="
+        for %%v in (
+            !_virtual!
+        ) do if /i "%%~v"=="%%b" set "_skip=-"
+        if not defined _skip for %%c in (
+            disable enable
+        ) do netsh.exe interface set interface "%%b" %%c
+    )
+    endlocal
     exit /b 0
 
 
